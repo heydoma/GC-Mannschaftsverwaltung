@@ -33,5 +33,27 @@ services:
       ADMINER_DEFAULT_SERVER: postgres
       ADMINER_DESIGN: pepa-linha
 
+  keycloak:
+    image: quay.io/keycloak/keycloak:25.0
+    container_name: golf_keycloak
+    restart: unless-stopped
+    command:
+      - start-dev
+      - --import-realm
+    environment:
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KC_HEALTH_ENABLED: "true"
+      KC_HTTP_ENABLED: "true"
+      KC_HOSTNAME_STRICT: "false"
+    ports:
+      - "${KEYCLOAK_PORT:-8180}:8080"
+    volumes:
+      - keycloak-data:/opt/keycloak/data
+      - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+
 volumes:
   postgres-data:
+  keycloak-data:

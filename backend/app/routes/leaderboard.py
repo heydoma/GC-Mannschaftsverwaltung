@@ -1,6 +1,7 @@
 import statistics
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, HTTPException
 
+from app.auth import CurrentUser, get_current_user
 from app.db import get_db
 from app.engine.golf_engine import GolfEngine
 
@@ -8,7 +9,9 @@ router = APIRouter(prefix="/api/leaderboard", tags=["leaderboard"])
 
 
 @router.get("")
-def get_leaderboard():
+def get_leaderboard(user: CurrentUser = Depends(get_current_user)):
+    if user.team_id is None:
+        raise HTTPException(403, "Kein Team zugeordnet.")
     with get_db() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -18,8 +21,10 @@ def get_leaderboard():
                     r.played_on, r.course_rating, r.slope_rating, r.hole_scores
                 FROM players p
                 LEFT JOIN rounds r ON r.player_id = p.id
+                WHERE p.team_id = %s
                 ORDER BY p.id, r.played_on ASC
-                """
+                """,
+                (user.team_id,),
             )
             rows = cur.fetchall()
 

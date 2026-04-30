@@ -10,7 +10,9 @@ export default function AdminPage() {
   const [players, setPlayers] = useState<Player[]>([])
   const [rounds, setRounds] = useState<Round[]>([])
   const [newName, setNewName] = useState('')
+  const [newEmail, setNewEmail] = useState('')
   const [adding, setAdding] = useState(false)
+  const [tempPw, setTempPw] = useState<{ name: string; pw: string } | null>(null)
 
   const loadAll = () => {
     getPlayers().then(setPlayers).catch((e) => toast.error(e.message))
@@ -19,12 +21,16 @@ export default function AdminPage() {
   useEffect(() => { loadAll() }, [])
 
   const handleAddPlayer = async () => {
-    if (!newName.trim()) return
+    if (!newName.trim() || !newEmail.trim()) return
     setAdding(true)
     try {
-      await createPlayer(newName.trim())
+      const result = await createPlayer(newName.trim(), newEmail.trim())
+      if (result.temporary_password) {
+        setTempPw({ name: result.name, pw: result.temporary_password })
+      }
       toast.success(`Spieler "${newName}" angelegt.`)
       setNewName('')
+      setNewEmail('')
       loadAll()
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : 'Fehler')
@@ -59,23 +65,54 @@ export default function AdminPage() {
     <div className="p-4 space-y-6 max-w-2xl mx-auto">
       <h2 className="text-xl font-bold">⚙️ Verwaltung</h2>
 
-      {/* Spieler */}
+      {/* Temp-Passwort Anzeige */}
+      {tempPw && (
+        <Card className="border-primary/50 bg-primary/5">
+          <CardContent className="pt-4 space-y-2">
+            <p className="text-sm font-medium">🔑 Temporäres Passwort für <strong>{tempPw.name}</strong></p>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 font-mono text-sm bg-muted px-3 py-2 rounded-md select-all">
+                {tempPw.pw}
+              </code>
+              <Button size="sm" variant="outline" onClick={() => {
+                navigator.clipboard.writeText(tempPw.pw)
+                toast.success('Kopiert!')
+              }}>Kopieren</Button>
+            </div>
+            <p className="text-xs text-muted-foreground">Nur einmal sichtbar. Bitte an Spieler weitergeben.</p>
+            <Button size="sm" variant="ghost" onClick={() => setTempPw(null)}>Schließen</Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Spieler anlegen */}
       <Card>
         <CardHeader><CardTitle>Spieler</CardTitle></CardHeader>
         <CardContent className="space-y-3">
-          <div className="flex gap-2">
+          <div className="flex flex-col sm:flex-row gap-2">
             <Input
-              placeholder="Neuer Spieler…"
+              placeholder="Name"
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
+            />
+            <Input
+              type="email"
+              placeholder="E-Mail"
+              value={newEmail}
+              onChange={(e) => setNewEmail(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleAddPlayer()}
             />
-            <Button onClick={handleAddPlayer} disabled={adding}>Anlegen</Button>
+            <Button onClick={handleAddPlayer} disabled={adding || !newName || !newEmail}>
+              Anlegen
+            </Button>
           </div>
           <ul className="divide-y">
             {players.map((p) => (
-              <li key={p.id} className="flex items-center justify-between py-2">
-                <span>{p.name}</span>
+              <li key={p.id} className="flex items-center justify-between py-2 gap-2">
+                <div>
+                  <span className="font-medium">{p.name}</span>
+                  {p.email && <span className="text-xs text-muted-foreground ml-2">{p.email}</span>}
+                </div>
                 <Button size="sm" variant="destructive" onClick={() => handleDeletePlayer(p)}>Löschen</Button>
               </li>
             ))}

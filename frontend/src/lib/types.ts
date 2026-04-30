@@ -1,7 +1,9 @@
 export interface Player {
   id: number
   name: string
+  email: string | null
   current_rating: number | null
+  keycloak_user_id: string | null
   created_at: string
 }
 

@@ -1,0 +1,87 @@
+{
+  "realm": "golf-team-manager",
+  "enabled": true,
+  "registrationAllowed": false,
+  "resetPasswordAllowed": true,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "sslRequired": "none",
+  "accessTokenLifespan": 1800,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 36000,
+  "roles": {
+    "realm": [
+      { "name": "captain", "description": "Mannschaftskapitän – darf Spieler & Runden verwalten" },
+      { "name": "player",  "description": "Spieler – darf eigene Runden eintragen" }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "golf-frontend",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "http://localhost:5173/*",
+        "http://127.0.0.1:5173/*"
+      ],
+      "webOrigins": [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:5173/*"
+      },
+      "protocolMappers": [
+        {
+          "name": "team_id-mapper",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "team_id",
+            "claim.name": "team_id",
+            "jsonType.label": "int",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "golf-backend",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "golf-backend-secret-dev-only-change-me",
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "authorizationServicesEnabled": false,
+      "attributes": {
+        "use.refresh.tokens": "false"
+      }
+    }
+  ],
+  "users": [
+    {
+      "username": "service-account-golf-backend",
+      "enabled": true,
+      "serviceAccountClientId": "golf-backend",
+      "clientRoles": {
+        "realm-management": [
+          "manage-users",
+          "view-users",
+          "query-users",
+          "manage-realm",
+          "view-realm",
+          "manage-clients"
+        ]
+      }
+    }
+  ]
+}

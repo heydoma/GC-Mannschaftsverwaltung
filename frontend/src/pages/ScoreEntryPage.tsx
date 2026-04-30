@@ -72,7 +72,7 @@ export default function ScoreEntryPage() {
       <div className="grid grid-cols-2 gap-3">
         <div className="col-span-2">
           <Label>Spieler</Label>
-          <Select value={playerId} onValueChange={setPlayerId}>
+          <Select value={playerId} onValueChange={(v) => setPlayerId(v ?? '')}>
             <SelectTrigger><SelectValue placeholder="Spieler wählen…" /></SelectTrigger>
             <SelectContent>
               {players.map((p) => <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>)}

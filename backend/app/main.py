@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routes import players, rounds, leaderboard
+from app.routes import auth, players, rounds, leaderboard
 
 app = FastAPI(title="Golf Team Performance API", version="0.1.0", redirect_slashes=False)
 
@@ -14,6 +14,7 @@ app.add_middleware(
 )
 
 # Router einbinden
+app.include_router(auth.router)
 app.include_router(players.router)
 app.include_router(rounds.router)
 app.include_router(leaderboard.router)
