@@ -1,0 +1,22 @@
+{
+  "terminals": [
+    {
+      "name": "🐳 Docker",
+      "commands": [
+        "docker compose up -d"
+      ]
+    },
+    {
+      "name": "🐍 Backend",
+      "commands": [
+        "cd backend && .venv/bin/uvicorn app.main:app --port 8000 --reload"
+      ]
+    },
+    {
+      "name": "⚛️ Frontend",
+      "commands": [
+        "cd frontend && npm run dev"
+      ]
+    }
+  ]
+}
