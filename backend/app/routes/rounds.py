@@ -1,5 +1,5 @@
 from datetime import date
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, field_validator
@@ -13,10 +13,11 @@ router = APIRouter(prefix="/api/rounds", tags=["rounds"])
 
 class RoundCreate(BaseModel):
     player_id: int
+    course_id: Optional[int] = None
     played_on: date
     course_rating: float
     slope_rating: int
-    hole_scores: list[int]
+    hole_scores: List[int]
 
     @field_validator("hole_scores")
     @classmethod
@@ -46,9 +47,11 @@ def list_rounds(
             if player_id:
                 cur.execute(
                     """SELECT r.id, p.name, r.played_on, r.course_rating,
-                              r.slope_rating, r.hole_scores, r.created_at
+                              r.slope_rating, r.hole_scores, r.created_at,
+                              c.id, c.name, r.differential
                        FROM rounds r
                        JOIN players p ON p.id = r.player_id
+                       LEFT JOIN courses c ON c.id = r.course_id
                        WHERE r.player_id = %s AND p.team_id = %s
                        ORDER BY r.played_on DESC""",
                     (player_id, user.team_id),
@@ -56,9 +59,11 @@ def list_rounds(
             else:
                 cur.execute(
                     """SELECT r.id, p.name, r.played_on, r.course_rating,
-                              r.slope_rating, r.hole_scores, r.created_at
+                              r.slope_rating, r.hole_scores, r.created_at,
+                              c.id, c.name, r.differential
                        FROM rounds r
                        JOIN players p ON p.id = r.player_id
+                       LEFT JOIN courses c ON c.id = r.course_id
                        WHERE p.team_id = %s
                        ORDER BY r.played_on DESC""",
                     (user.team_id,),
@@ -67,15 +72,18 @@ def list_rounds(
 
     result = []
     for r in rows:
-        try:
-            diff = GolfEngine.calc_differential(r[5], float(r[3]), r[4])
-        except ValueError:
-            diff = None
+        diff = r[9]
+        if diff is None:
+            try:
+                diff = GolfEngine.calc_differential(r[5], float(r[3]), r[4])
+            except ValueError:
+                diff = None
         result.append({
             "id": r[0], "player_name": r[1], "played_on": r[2],
             "course_rating": r[3], "slope_rating": r[4],
             "hole_scores": r[5], "total_score": sum(r[5]),
             "differential": diff, "created_at": r[6],
+            "course_id": r[7], "course_name": r[8],
         })
     return result
 
@@ -103,16 +111,32 @@ def create_round(body: RoundCreate, user: CurrentUser = Depends(get_current_user
         if player_kc_id != user.user_id:
             raise HTTPException(403, "Spieler dürfen nur eigene Runden eintragen.")
 
+    if body.course_id is not None:
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT id FROM courses WHERE id = %s", (body.course_id,))
+                if cur.fetchone() is None:
+                    raise HTTPException(404, "Platz nicht gefunden.")
+
     diff = GolfEngine.calc_differential(body.hole_scores, body.course_rating, body.slope_rating)
     with get_db() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """INSERT INTO rounds (player_id, played_on, course_rating, slope_rating, hole_scores)
-                   VALUES (%s, %s, %s, %s, %s) RETURNING id""",
-                (body.player_id, body.played_on, body.course_rating,
-                 body.slope_rating, body.hole_scores),
+                """INSERT INTO rounds
+                   (player_id, course_id, played_on, course_rating, slope_rating, hole_scores, differential)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id""",
+                (
+                    body.player_id,
+                    body.course_id,
+                    body.played_on,
+                    body.course_rating,
+                    body.slope_rating,
+                    body.hole_scores,
+                    diff,
+                ),
             )
             row = cur.fetchone()
+
     return {"id": row[0], "differential": diff, "total_score": sum(body.hole_scores)}
 
 

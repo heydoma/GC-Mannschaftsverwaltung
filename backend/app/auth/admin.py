@@ -1,7 +1,7 @@
 """Keycloak Admin REST API Client – User-Anlage, Rollen, Attribute."""
 import os
 import time
-from typing import Optional
+from typing import List, Optional
 
 import httpx
 from dotenv import load_dotenv
@@ -118,6 +118,48 @@ def set_team_id(user_id: str, team_id: int) -> None:
     )
     if resp.status_code != 204:
         raise KeycloakError(f"Attribut-Update fehlgeschlagen: {resp.text}")
+
+
+def get_user_realm_roles(user_id: str) -> List[str]:
+    resp = httpx.get(
+        f"{ADMIN_BASE}/users/{user_id}/role-mappings/realm",
+        headers=_headers(),
+        timeout=5.0,
+    )
+    if resp.status_code != 200:
+        raise KeycloakError(f"Rollen-Lesen fehlgeschlagen: {resp.text}")
+    roles = resp.json() or []
+    return [r.get("name") for r in roles if r.get("name")]
+
+
+def set_user_realm_role(user_id: str, role: str) -> None:
+    """Setzt die Realm-Rolle auf genau eine der erlaubten Rollen."""
+    if role not in ("player", "captain"):
+        raise KeycloakError("Ungueltige Rolle", status_code=400)
+
+    current = get_user_realm_roles(user_id)
+    to_remove = [r for r in ("player", "captain") if r in current]
+    if to_remove:
+        roles = [_get_realm_role(r) for r in to_remove]
+        resp = httpx.request(
+            "DELETE",
+            f"{ADMIN_BASE}/users/{user_id}/role-mappings/realm",
+            headers=_headers(),
+            json=[{"id": r["id"], "name": r["name"]} for r in roles],
+            timeout=5.0,
+        )
+        if resp.status_code not in (204, 200):
+            raise KeycloakError(f"Rollen-Entfernen fehlgeschlagen: {resp.text}")
+
+    role_info = _get_realm_role(role)
+    add_resp = httpx.post(
+        f"{ADMIN_BASE}/users/{user_id}/role-mappings/realm",
+        headers=_headers(),
+        json=[{"id": role_info["id"], "name": role_info["name"]}],
+        timeout=5.0,
+    )
+    if add_resp.status_code not in (204, 200):
+        raise KeycloakError(f"Rollen-Zuweisung fehlgeschlagen: {add_resp.text}")
 
 
 _setup_done = False

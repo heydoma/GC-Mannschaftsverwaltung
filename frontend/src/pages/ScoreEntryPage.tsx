@@ -1,18 +1,27 @@
-import { useEffect, useRef, useState } from 'react'
-import { getPlayers, createRound } from '@/lib/api'
-import type { Player } from '@/lib/types'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { createCourse, createRound, getCourses, getPlayers, updateCourse } from '@/lib/api'
+import type { Course, Player } from '@/lib/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { toast } from 'sonner'
+import { useAuth } from '@/lib/auth'
 
 const HOLES = Array.from({ length: 18 }, (_, i) => i + 1)
 
 export default function ScoreEntryPage() {
+  const { user } = useAuth()
   const [players, setPlayers] = useState<Player[]>([])
   const [playerId, setPlayerId] = useState<string>('')
+  const [courses, setCourses] = useState<Course[]>([])
+  const [courseName, setCourseName] = useState('')
+  const [courseId, setCourseId] = useState<number | null>(null)
+  const [courseModalOpen, setCourseModalOpen] = useState(false)
+  const [courseModalMode, setCourseModalMode] = useState<'create' | 'edit'>('create')
+  const [courseDraft, setCourseDraft] = useState('')
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10))
   const [cr, setCr] = useState<string>('')
   const [slope, setSlope] = useState<string>('')
@@ -22,7 +31,21 @@ export default function ScoreEntryPage() {
 
   useEffect(() => {
     getPlayers().then(setPlayers).catch((e) => toast.error(e.message))
+    getCourses().then(setCourses).catch((e) => toast.error(e.message))
   }, [])
+
+  useEffect(() => {
+    if (!user || user.isCaptain) return
+    const own = players.find((p) => p.keycloak_user_id === user.id)
+    if (own) setPlayerId(String(own.id))
+  }, [players, user])
+
+  const courseOptions = useMemo(
+    () => courses.map((course) => ({ id: course.id, name: course.name })),
+    [courses]
+  )
+
+  const canEditCourses = !!user?.isAdmin
 
   const totalScore = scores.reduce((s, v) => s + (parseInt(v) || 0), 0)
   const allFilled = scores.every((v) => parseInt(v) >= 1)
@@ -42,13 +65,50 @@ export default function ScoreEntryPage() {
     }
   }
 
+  const handleCourseInput = (value: string) => {
+    setCourseName(value)
+    const match = courseOptions.find((c) => c.name.toLowerCase() === value.toLowerCase())
+    setCourseId(match ? match.id : null)
+  }
+
+  const openCourseModal = (mode: 'create' | 'edit') => {
+    setCourseModalMode(mode)
+    setCourseDraft(mode === 'edit' ? courseName : '')
+    setCourseModalOpen(true)
+  }
+
+  const submitCourse = async () => {
+    const trimmed = courseDraft.trim()
+    if (!trimmed) return
+    try {
+      if (courseModalMode === 'create') {
+        const created = await createCourse(trimmed)
+        setCourses((prev) => [...prev, created].sort((a, b) => a.name.localeCompare(b.name)))
+        setCourseName(created.name)
+        setCourseId(created.id)
+        toast.success('Platz angelegt.')
+      } else if (courseId) {
+        const updated = await updateCourse(courseId, trimmed)
+        setCourses((prev) => prev.map((c) => (c.id === updated.id ? updated : c)))
+        setCourseName(updated.name)
+        setCourseId(updated.id)
+        toast.success('Platz aktualisiert.')
+      }
+      setCourseModalOpen(false)
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'Fehler beim Speichern')
+    }
+  }
+
   const handleSubmit = async () => {
     if (!playerId) return toast.error('Bitte Spieler auswählen.')
+    if (courseName && !courseId) return toast.error('Bitte einen gueltigen Platz auswaehlen.')
     if (!allFilled) return toast.error('Alle 18 Löcher müssen ausgefüllt sein.')
     setSubmitting(true)
     try {
       await createRound({
         player_id: parseInt(playerId),
+        course_id: courseId ?? undefined,
         played_on: date,
         course_rating: crNum,
         slope_rating: slopeNum,
@@ -56,7 +116,7 @@ export default function ScoreEntryPage() {
       })
       toast.success('Runde gespeichert! ⛳')
       setScores(Array(18).fill(''))
-      setPlayerId('')
+      if (user?.isCaptain) setPlayerId('')
       inputRefs.current[0]?.focus()
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : 'Fehler beim Speichern')
@@ -84,11 +144,52 @@ export default function ScoreEntryPage() {
             <div className="space-y-2">
               <Label>Spieler</Label>
               <Select value={playerId} onValueChange={(v) => setPlayerId(v ?? '')}>
-                <SelectTrigger><SelectValue placeholder="Spieler wählen…" /></SelectTrigger>
+                <SelectTrigger disabled={!user?.isCaptain}><SelectValue placeholder="Spieler wählen…" /></SelectTrigger>
                 <SelectContent>
                   {players.map((p) => <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>)}
                 </SelectContent>
               </Select>
+              {!user?.isCaptain && (
+                <p className="text-xs text-muted-foreground">
+                  Du kannst nur deine eigenen Runden eintragen.
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label>Platz</Label>
+                {canEditCourses && (
+                  <div className="flex items-center gap-2 text-xs">
+                    <button
+                      type="button"
+                      className="text-primary hover:underline"
+                      onClick={() => openCourseModal('create')}
+                    >
+                      Platz hinzufuegen
+                    </button>
+                    <button
+                      type="button"
+                      className="text-primary hover:underline disabled:text-muted-foreground"
+                      onClick={() => openCourseModal('edit')}
+                      disabled={!courseId}
+                    >
+                      Platz bearbeiten
+                    </button>
+                  </div>
+                )}
+              </div>
+              <Input
+                list="course-list"
+                placeholder="Platz waehlen…"
+                value={courseName}
+                onChange={(e) => handleCourseInput(e.target.value)}
+              />
+              <datalist id="course-list">
+                {courseOptions.map((course) => (
+                  <option key={course.id} value={course.name} />
+                ))}
+              </datalist>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
@@ -145,6 +246,32 @@ export default function ScoreEntryPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Dialog open={courseModalOpen} onOpenChange={setCourseModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {courseModalMode === 'create' ? 'Platz hinzufuegen' : 'Platz bearbeiten'}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label>Name</Label>
+            <Input
+              value={courseDraft}
+              onChange={(e) => setCourseDraft(e.target.value)}
+              placeholder="z.B. Golfclub Musterstadt"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCourseModalOpen(false)}>
+              Abbrechen
+            </Button>
+            <Button onClick={submitCourse}>
+              Speichern
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

@@ -15,6 +15,7 @@ export interface AuthUser {
   roles: string[]
   isCaptain: boolean
   isAdmin: boolean
+  isPlayer: boolean
 }
 
 interface AuthContextValue {
@@ -42,6 +43,7 @@ function parseUser(): AuthUser | null {
     roles,
     isCaptain: roles.includes('captain'),
     isAdmin: roles.includes('admin'),
+    isPlayer: roles.includes('player'),
   }
 }
 

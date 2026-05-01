@@ -1,7 +1,7 @@
 import math
 import statistics
 from datetime import date
-from typing import Optional
+from typing import Dict, List, Optional
 
 
 class GolfEngine:
@@ -14,7 +14,7 @@ class GolfEngine:
     # ------------------------------------------------------------------
     @staticmethod
     def calc_differential(
-        hole_scores: list[int],
+        hole_scores: List[int],
         course_rating: float,
         slope: int,
     ) -> float:
@@ -32,7 +32,7 @@ class GolfEngine:
     # ------------------------------------------------------------------
     @staticmethod
     def calc_weighted_rating(
-        rounds_data: list[dict],  # [{"differential": float, "played_on": date}]
+        rounds_data: List[Dict],  # [{"differential": float, "played_on": date}]
         lambda_days: float = LAMBDA_DAYS,
     ) -> Optional[float]:
         if not rounds_data:
@@ -53,7 +53,7 @@ class GolfEngine:
     # 3. Momentum (Form-Analyse)
     # ------------------------------------------------------------------
     @staticmethod
-    def calc_momentum(differentials: list[float]) -> dict:
+    def calc_momentum(differentials: List[float]) -> Dict:
         if not differentials:
             return {"avg_all": None, "avg_last3": None, "momentum": None, "form_icon": "—"}
 
@@ -83,7 +83,43 @@ class GolfEngine:
     # 4. Consistency-Index (Standardabweichung der Differentiale)
     # ------------------------------------------------------------------
     @staticmethod
-    def calc_consistency(differentials: list[float]) -> Optional[float]:
+    def calc_consistency(differentials: List[float]) -> Optional[float]:
         if len(differentials) < 2:
             return None
         return round(statistics.stdev(differentials), 2)
+
+    # ------------------------------------------------------------------
+    # 5. WHS Index (beste Differentiale)
+    # ------------------------------------------------------------------
+    @staticmethod
+    def calc_whs_index(differentials: List[float]) -> Optional[float]:
+        count = len(differentials)
+        if count < 3:
+            return None
+
+        sorted_diffs = sorted(differentials)
+
+        if count == 3:
+            value = sorted_diffs[0] - 2.0
+        elif count == 4:
+            value = sorted_diffs[0] - 1.0
+        elif count == 5:
+            value = sorted_diffs[0]
+        elif count == 6:
+            value = statistics.mean(sorted_diffs[:2]) - 1.0
+        elif 7 <= count <= 8:
+            value = statistics.mean(sorted_diffs[:2])
+        elif 9 <= count <= 11:
+            value = statistics.mean(sorted_diffs[:3])
+        elif 12 <= count <= 14:
+            value = statistics.mean(sorted_diffs[:4])
+        elif 15 <= count <= 16:
+            value = statistics.mean(sorted_diffs[:5])
+        elif 17 <= count <= 18:
+            value = statistics.mean(sorted_diffs[:6])
+        elif count == 19:
+            value = statistics.mean(sorted_diffs[:7])
+        else:
+            value = statistics.mean(sorted_diffs[:8])
+
+        return round(value, 1)

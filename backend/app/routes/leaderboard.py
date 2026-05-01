@@ -18,7 +18,8 @@ def get_leaderboard(user: CurrentUser = Depends(get_current_user)):
                 """
                 SELECT
                     p.id, p.name,
-                    r.played_on, r.course_rating, r.slope_rating, r.hole_scores
+                    r.played_on, r.course_rating, r.slope_rating, r.hole_scores,
+                    r.differential
                 FROM players p
                 LEFT JOIN rounds r ON r.player_id = p.id
                 WHERE p.team_id = %s
@@ -31,15 +32,18 @@ def get_leaderboard(user: CurrentUser = Depends(get_current_user)):
     # Spieler gruppieren
     players: dict[int, dict] = {}
     for row in rows:
-        pid, name, played_on, cr, slope, hole_scores = row
+        pid, name, played_on, cr, slope, hole_scores, differential = row
         if pid not in players:
             players[pid] = {"id": pid, "name": name, "rounds": []}
         if played_on is not None:
-            try:
-                diff = GolfEngine.calc_differential(hole_scores, float(cr), slope)
-                players[pid]["rounds"].append({"differential": diff, "played_on": played_on})
-            except ValueError:
-                pass
+            diff = differential
+            if diff is None:
+                try:
+                    diff = GolfEngine.calc_differential(hole_scores, float(cr), slope)
+                except ValueError:
+                    diff = None
+            if diff is not None:
+                players[pid]["rounds"].append({"differential": float(diff), "played_on": played_on})
 
     leaderboard = []
     for p in players.values():
@@ -47,7 +51,7 @@ def get_leaderboard(user: CurrentUser = Depends(get_current_user)):
         diffs = [r["differential"] for r in rounds]
 
         weighted_rating = GolfEngine.calc_weighted_rating(rounds)
-        momentum_data = GolfEngine.calc_momentum(diffs)
+        momentum_data = GolfEngine.calc_momentum(diffs[-20:])
         consistency = GolfEngine.calc_consistency(diffs)
 
         leaderboard.append({

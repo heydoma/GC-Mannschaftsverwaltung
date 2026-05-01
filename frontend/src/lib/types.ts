@@ -5,12 +5,15 @@ export interface Player {
   current_rating: number | null
   keycloak_user_id: string | null
   created_at: string
+  role?: 'player' | 'captain' | null
 }
 
 export interface Round {
   id: number
   player_name: string
   played_on: string
+  course_id: number | null
+  course_name: string | null
   course_rating: number
   slope_rating: number
   hole_scores: number[]
@@ -34,6 +37,7 @@ export interface LeaderboardEntry {
 
 export interface RoundCreate {
   player_id: number
+  course_id?: number | null
   played_on: string
   course_rating: number
   slope_rating: number
@@ -41,6 +45,12 @@ export interface RoundCreate {
 }
 
 export interface TeamSummary {
+  id: number
+  name: string
+  created_at: string
+}
+
+export interface Course {
   id: number
   name: string
   created_at: string

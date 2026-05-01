@@ -1,16 +1,21 @@
 import { useEffect, useState } from 'react'
-import { getPlayers, createPlayer, deletePlayer, getRounds, deleteRound } from '@/lib/api'
+import { getPlayers, createPlayer, deletePlayer, getRounds, deleteRound, updatePlayerRole, analyzePlayer } from '@/lib/api'
 import type { Player, Round } from '@/lib/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { toast } from 'sonner'
+import { useAuth } from '@/lib/auth'
 
 export default function AdminPage() {
+  const { user } = useAuth()
   const [players, setPlayers] = useState<Player[]>([])
   const [rounds, setRounds] = useState<Round[]>([])
   const [newName, setNewName] = useState('')
   const [newEmail, setNewEmail] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [newRole, setNewRole] = useState<'player' | 'captain'>('player')
+  const [roleDrafts, setRoleDrafts] = useState<Record<number, 'player' | 'captain'>>({})
   const [adding, setAdding] = useState(false)
   const [tempPw, setTempPw] = useState<{ name: string; pw: string } | null>(null)
 
@@ -20,17 +25,34 @@ export default function AdminPage() {
   }
   useEffect(() => { loadAll() }, [])
 
+  useEffect(() => {
+    setRoleDrafts((prev) => {
+      const next = { ...prev }
+      players.forEach((p) => {
+        if (p.role && next[p.id] == null) next[p.id] = p.role
+      })
+      return next
+    })
+  }, [players])
+
   const handleAddPlayer = async () => {
-    if (!newName.trim() || !newEmail.trim()) return
+    if (!newName.trim() || !newEmail.trim() || !newPassword.trim()) return
     setAdding(true)
     try {
-      const result = await createPlayer(newName.trim(), newEmail.trim())
+      const result = await createPlayer(
+        newName.trim(),
+        newEmail.trim(),
+        newPassword.trim(),
+        newRole,
+      )
       if (result.temporary_password) {
         setTempPw({ name: result.name, pw: result.temporary_password })
       }
       toast.success(`Spieler "${newName}" angelegt.`)
       setNewName('')
       setNewEmail('')
+      setNewPassword('')
+      setNewRole('player')
       loadAll()
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : 'Fehler')
@@ -40,7 +62,7 @@ export default function AdminPage() {
   }
 
   const handleDeletePlayer = async (p: Player) => {
-    if (!confirm(`Spieler "${p.name}" und alle Runden löschen?`)) return
+    if (!confirm(`Spieler "${p.name}" und alle Runden loeschen?`)) return
     try {
       await deletePlayer(p.id)
       toast.success(`${p.name} gelöscht.`)
@@ -51,15 +73,39 @@ export default function AdminPage() {
   }
 
   const handleDeleteRound = async (r: Round) => {
-    if (!confirm(`Runde von ${r.player_name} am ${r.played_on} löschen?`)) return
+    if (!confirm(`Runde von ${r.player_name} am ${r.played_on} loeschen?`)) return
     try {
       await deleteRound(r.id)
-      toast.success('Runde gelöscht.')
+      toast.success('Runde geloescht.')
       loadAll()
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : 'Fehler')
     }
   }
+
+  const handleRoleSave = async (p: Player) => {
+    const role = roleDrafts[p.id]
+    if (!role) return
+    try {
+      await updatePlayerRole(p.id, role)
+      toast.success(`Rolle aktualisiert: ${p.name}`)
+      loadAll()
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'Fehler')
+    }
+  }
+
+  const handleAnalyze = async (p: Player) => {
+    try {
+      await analyzePlayer(p.id)
+      toast.success(`Analyse aktualisiert: ${p.name}`)
+      loadAll()
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'Fehler')
+    }
+  }
+
+  const captainCount = players.filter((p) => p.role === 'captain').length
 
   return (
     <div className="p-5 sm:p-8 space-y-6">
@@ -75,7 +121,7 @@ export default function AdminPage() {
       {tempPw && (
         <Card className="border-primary/50 bg-primary/5">
           <CardContent className="pt-4 space-y-2">
-            <p className="text-sm font-medium">🔑 Temporäres Passwort für <strong>{tempPw.name}</strong></p>
+            <p className="text-sm font-medium">🔑 Temporaeres Passwort fuer <strong>{tempPw.name}</strong></p>
             <div className="flex items-center gap-2">
               <code className="flex-1 font-mono text-sm bg-muted px-3 py-2 rounded-md select-all">
                 {tempPw.pw}
@@ -109,7 +155,22 @@ export default function AdminPage() {
                 onChange={(e) => setNewEmail(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleAddPlayer()}
               />
-              <Button onClick={handleAddPlayer} disabled={adding || !newName || !newEmail}>
+              <Input
+                type="password"
+                placeholder="Temporaeres Passwort (min. 8 Zeichen)"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+              />
+              <label className="text-xs text-muted-foreground">Rolle</label>
+              <select
+                value={newRole}
+                onChange={(e) => setNewRole(e.target.value as 'player' | 'captain')}
+                className="h-9 rounded-md border bg-background px-3 text-sm"
+              >
+                <option value="player">Player</option>
+                <option value="captain">Captain</option>
+              </select>
+              <Button onClick={handleAddPlayer} disabled={adding || !newName || !newEmail || !newPassword}>
                 Spieler anlegen
               </Button>
             </div>
@@ -119,8 +180,53 @@ export default function AdminPage() {
                   <div>
                     <span className="font-medium">{p.name}</span>
                     {p.email && <span className="text-xs text-muted-foreground ml-2">{p.email}</span>}
+                    <div className="mt-1 flex items-center gap-2 flex-wrap">
+                      {(() => {
+                        const selectedRole = roleDrafts[p.id] ?? p.role ?? 'player'
+                        const isSelf = p.keycloak_user_id === user?.id
+                        const isLastCaptain = p.role === 'captain' && captainCount <= 1
+                        const blockDowngrade = selectedRole === 'player' && (isSelf || isLastCaptain)
+                        return (
+                          <>
+                            <select
+                              value={selectedRole}
+                              onChange={(e) =>
+                                setRoleDrafts((prev) => ({
+                                  ...prev,
+                                  [p.id]: e.target.value as 'player' | 'captain',
+                                }))
+                              }
+                              className="h-8 rounded-md border bg-background px-2 text-xs"
+                            >
+                              <option value="player">Player</option>
+                              <option value="captain">Captain</option>
+                            </select>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleRoleSave(p)}
+                              disabled={blockDowngrade}
+                            >
+                              Rolle aendern
+                            </Button>
+                            {blockDowngrade && (
+                              <span className="text-xs text-muted-foreground">
+                                Captain muss bleiben
+                              </span>
+                            )}
+                          </>
+                        )
+                      })()}
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => handleAnalyze(p)}
+                      >
+                        Analyse
+                      </Button>
+                    </div>
                   </div>
-                  <Button size="sm" variant="destructive" onClick={() => handleDeletePlayer(p)}>Löschen</Button>
+                  <Button size="sm" variant="destructive" onClick={() => handleDeletePlayer(p)}>Loeschen</Button>
                 </li>
               ))}
             </ul>

@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routes import auth, players, rounds, leaderboard
+from app.routes import auth, players, rounds, leaderboard, courses
 
 app = FastAPI(title="Golf Team Performance API", version="0.1.0", redirect_slashes=False)
 
@@ -18,6 +18,7 @@ app.include_router(auth.router)
 app.include_router(players.router)
 app.include_router(rounds.router)
 app.include_router(leaderboard.router)
+app.include_router(courses.router)
 
 
 @app.get("/api/health")

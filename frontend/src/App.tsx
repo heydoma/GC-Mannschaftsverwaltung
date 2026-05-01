@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom'
 import { Toaster } from '@/components/ui/sonner'
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
 import DashboardPage from '@/pages/DashboardPage'
 import ScoreEntryPage from '@/pages/ScoreEntryPage'
 import AdminPage from '@/pages/AdminPage'
@@ -39,11 +41,26 @@ function Shell() {
     const saved = localStorage.getItem('theme')
     return saved ? saved === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches
   })
+  const [gdprOpen, setGdprOpen] = useState(false)
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', dark)
     localStorage.setItem('theme', dark ? 'dark' : 'light')
   }, [dark])
+
+  useEffect(() => {
+    if (!user) return
+    if (!user.isCaptain && !user.isPlayer) return
+    const key = `gdprAccepted:${user.id}`
+    const accepted = localStorage.getItem(key)
+    if (!accepted) setGdprOpen(true)
+  }, [user])
+
+  const acceptGdpr = () => {
+    if (!user) return
+    localStorage.setItem(`gdprAccepted:${user.id}`, new Date().toISOString())
+    setGdprOpen(false)
+  }
 
   const navItems = useMemo<NavItem[]>(
     () => [
@@ -106,6 +123,29 @@ function Shell() {
             <Outlet />
           </div>
         </main>
+
+        <Dialog open={gdprOpen} onOpenChange={() => undefined}>
+          <DialogContent showCloseButton={false}>
+            <DialogHeader>
+              <DialogTitle>Datenschutz & Einwilligung</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3 text-sm text-muted-foreground">
+              <p>
+                Wir verarbeiten deine Daten nur fuer die Teamverwaltung und die Auswertung
+                deiner Runden. Dazu gehoeren Name, E-Mail und gespielte Scores.
+              </p>
+              <p>
+                Mit Klick auf "Einverstanden" bestaetigst du die Speicherung und Verarbeitung
+                deiner Daten im Rahmen dieser Anwendung.
+              </p>
+            </div>
+            <DialogFooter>
+              <Button onClick={acceptGdpr}>
+                Einverstanden
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         <nav className="fixed bottom-4 left-1/2 z-10 w-[min(100%,720px)] -translate-x-1/2 px-4">
           <div

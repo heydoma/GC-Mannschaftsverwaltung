@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: golf
+          POSTGRES_PASSWORD: golf
+          POSTGRES_DB: golf_team
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U golf -d golf_team"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install backend dependencies
+        run: pip install -r backend/requirements.txt
+      - name: Wait for Postgres
+        run: |
+          for i in {1..10}; do
+            pg_isready -h localhost -U golf -d golf_team && exit 0
+            sleep 2
+          done
+          exit 1
+        env:
+          PGPASSWORD: golf
+      - name: Apply schema
+        run: psql -h localhost -U golf -d golf_team -f db/init.sql
+        env:
+          PGPASSWORD: golf
+      - name: Apply migrations
+        run: psql -h localhost -U golf -d golf_team -f db/migrations/001_add_whs_fields.sql
+        env:
+          PGPASSWORD: golf
+      - name: Run tests
+        run: pytest backend/tests

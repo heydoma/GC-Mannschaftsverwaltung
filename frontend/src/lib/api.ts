@@ -1,5 +1,5 @@
 import keycloak from './keycloak'
-import type { Player, Round, LeaderboardEntry, RoundCreate, TeamSummary } from './types'
+import type { Player, Round, LeaderboardEntry, RoundCreate, TeamSummary, Course } from './types'
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:8000/api'
 
@@ -32,14 +32,26 @@ export interface PlayerCreateResult extends Player {
   message?: string
 }
 
-export const createPlayer = (name: string, email: string) =>
+export const createPlayer = (name: string, email: string, password: string, role: 'player' | 'captain') =>
   request<PlayerCreateResult>('/players', {
     method: 'POST',
-    body: JSON.stringify({ name, email }),
+    body: JSON.stringify({ name, email, password, role }),
   })
 
 export const deletePlayer = (id: number) =>
   request<void>(`/players/${id}`, { method: 'DELETE' })
+
+export const updatePlayerRole = (id: number, role: 'player' | 'captain') =>
+  request<{ id: number; role: 'player' | 'captain' }>(`/players/${id}/role`, {
+    method: 'PATCH',
+    body: JSON.stringify({ role }),
+  })
+
+export const analyzePlayer = (id: number) =>
+  request<{ player_id: number; current_whs_index: number | null; weighted_rating: number | null; momentum_score: number | null }>(
+    `/players/${id}/analyze`,
+    { method: 'POST' },
+  )
 
 // ── Rounds ──────────────────────────────────────────────────────────
 export const getRounds = (player_id?: number) =>
@@ -72,3 +84,18 @@ export const registerTeam = (data: RegisterTeamPayload) =>
   })
 
 export const getTeams = () => request<TeamSummary[]>('/auth/teams')
+
+// ── Courses ─────────────────────────────────────────────────────────
+export const getCourses = () => request<Course[]>('/courses')
+
+export const createCourse = (name: string) =>
+  request<Course>('/courses', {
+    method: 'POST',
+    body: JSON.stringify({ name }),
+  })
+
+export const updateCourse = (id: number, name: string) =>
+  request<Course>(`/courses/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify({ name }),
+  })
