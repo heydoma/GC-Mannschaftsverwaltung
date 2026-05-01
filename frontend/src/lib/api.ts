@@ -1,5 +1,5 @@
 import keycloak from './keycloak'
-import type { Player, Round, LeaderboardEntry, RoundCreate } from './types'
+import type { Player, Round, LeaderboardEntry, RoundCreate, TeamSummary } from './types'
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:8000/api'
 
@@ -70,3 +70,5 @@ export const registerTeam = (data: RegisterTeamPayload) =>
     method: 'POST',
     body: JSON.stringify(data),
   })
+
+export const getTeams = () => request<TeamSummary[]>('/auth/teams')

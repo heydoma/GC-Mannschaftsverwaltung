@@ -14,6 +14,7 @@ export interface AuthUser {
   teamId: number | undefined
   roles: string[]
   isCaptain: boolean
+  isAdmin: boolean
 }
 
 interface AuthContextValue {
@@ -40,6 +41,7 @@ function parseUser(): AuthUser | null {
     teamId: teamIdRaw != null ? Number(teamIdRaw) : undefined,
     roles,
     isCaptain: roles.includes('captain'),
+    isAdmin: roles.includes('admin'),
   }
 }
 

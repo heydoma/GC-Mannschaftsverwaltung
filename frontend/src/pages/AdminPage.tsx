@@ -62,8 +62,14 @@ export default function AdminPage() {
   }
 
   return (
-    <div className="p-4 space-y-6 max-w-2xl mx-auto">
-      <h2 className="text-xl font-bold">⚙️ Verwaltung</h2>
+    <div className="p-5 sm:p-8 space-y-6">
+      <div className="space-y-2">
+        <p className="page-kicker">Captain Workspace</p>
+        <h2 className="page-title text-2xl font-semibold sm:text-3xl">Verwaltung</h2>
+        <p className="text-sm text-muted-foreground">
+          Spieler anlegen, Zugaenge verwalten und Runden pflegen.
+        </p>
+      </div>
 
       {/* Temp-Passwort Anzeige */}
       {tempPw && (
@@ -85,75 +91,77 @@ export default function AdminPage() {
         </Card>
       )}
 
-      {/* Spieler anlegen */}
-      <Card>
-        <CardHeader><CardTitle>Spieler</CardTitle></CardHeader>
-        <CardContent className="space-y-3">
-          <div className="flex flex-col sm:flex-row gap-2">
-            <Input
-              placeholder="Name"
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-            />
-            <Input
-              type="email"
-              placeholder="E-Mail"
-              value={newEmail}
-              onChange={(e) => setNewEmail(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleAddPlayer()}
-            />
-            <Button onClick={handleAddPlayer} disabled={adding || !newName || !newEmail}>
-              Anlegen
-            </Button>
-          </div>
-          <ul className="divide-y">
-            {players.map((p) => (
-              <li key={p.id} className="flex items-center justify-between py-2 gap-2">
-                <div>
-                  <span className="font-medium">{p.name}</span>
-                  {p.email && <span className="text-xs text-muted-foreground ml-2">{p.email}</span>}
-                </div>
-                <Button size="sm" variant="destructive" onClick={() => handleDeletePlayer(p)}>Löschen</Button>
-              </li>
-            ))}
-          </ul>
-        </CardContent>
-      </Card>
+      <div className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
+        {/* Spieler anlegen */}
+        <Card>
+          <CardHeader><CardTitle>Spieler</CardTitle></CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex flex-col gap-2">
+              <Input
+                placeholder="Name"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+              />
+              <Input
+                type="email"
+                placeholder="E-Mail"
+                value={newEmail}
+                onChange={(e) => setNewEmail(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleAddPlayer()}
+              />
+              <Button onClick={handleAddPlayer} disabled={adding || !newName || !newEmail}>
+                Spieler anlegen
+              </Button>
+            </div>
+            <ul className="divide-y">
+              {players.map((p) => (
+                <li key={p.id} className="flex items-center justify-between py-2 gap-2">
+                  <div>
+                    <span className="font-medium">{p.name}</span>
+                    {p.email && <span className="text-xs text-muted-foreground ml-2">{p.email}</span>}
+                  </div>
+                  <Button size="sm" variant="destructive" onClick={() => handleDeletePlayer(p)}>Löschen</Button>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
 
-      {/* Runden-Historie */}
-      <Card>
-        <CardHeader><CardTitle>Runden-Historie ({rounds.length})</CardTitle></CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="text-muted-foreground">
-                <tr>
-                  <th className="text-left pb-2">Spieler</th>
-                  <th className="text-left pb-2">Datum</th>
-                  <th className="text-right pb-2">Total</th>
-                  <th className="text-right pb-2">Diff.</th>
-                  <th className="pb-2" />
-                </tr>
-              </thead>
-              <tbody>
-                {rounds.map((r) => (
-                  <tr key={r.id} className="border-t">
-                    <td className="py-2">{r.player_name}</td>
-                    <td className="py-2">{r.played_on}</td>
-                    <td className="py-2 text-right font-mono">{r.total_score}</td>
-                    <td className="py-2 text-right font-mono">
-                      {r.differential != null ? r.differential.toFixed(1) : '—'}
-                    </td>
-                    <td className="py-2 text-right">
-                      <Button size="sm" variant="ghost" onClick={() => handleDeleteRound(r)}>🗑</Button>
-                    </td>
+        {/* Runden-Historie */}
+        <Card>
+          <CardHeader><CardTitle>Runden-Historie ({rounds.length})</CardTitle></CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="text-muted-foreground">
+                  <tr>
+                    <th className="text-left pb-2">Spieler</th>
+                    <th className="text-left pb-2">Datum</th>
+                    <th className="text-right pb-2">Total</th>
+                    <th className="text-right pb-2">Diff.</th>
+                    <th className="pb-2" />
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
+                </thead>
+                <tbody>
+                  {rounds.map((r) => (
+                    <tr key={r.id} className="border-t">
+                      <td className="py-2">{r.player_name}</td>
+                      <td className="py-2">{r.played_on}</td>
+                      <td className="py-2 text-right font-mono">{r.total_score}</td>
+                      <td className="py-2 text-right font-mono">
+                        {r.differential != null ? r.differential.toFixed(1) : '—'}
+                      </td>
+                      <td className="py-2 text-right">
+                        <Button size="sm" variant="ghost" onClick={() => handleDeleteRound(r)}>🗑</Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   )
 }

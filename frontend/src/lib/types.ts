@@ -39,3 +39,9 @@ export interface RoundCreate {
   slope_rating: number
   hole_scores: number[]
 }
+
+export interface TeamSummary {
+  id: number
+  name: string
+  created_at: string
+}

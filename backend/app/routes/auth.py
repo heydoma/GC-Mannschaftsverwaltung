@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr, Field
 
-from app.auth import CurrentUser, get_current_user
+from app.auth import CurrentUser, get_current_user, require_admin
 from app.auth.admin import create_user, delete_user
 from app.db import get_db
 
@@ -16,8 +16,8 @@ class RegisterTeam(BaseModel):
 
 
 @router.post("/register-team", status_code=201)
-def register_team(body: RegisterTeam):
-    """Self-Service: legt Mannschaft + Captain (Keycloak + DB) an."""
+def register_team(body: RegisterTeam, _: CurrentUser = Depends(require_admin)):
+    """Admin: legt Mannschaft + Captain (Keycloak + DB) an."""
     # 1) Team in DB anlegen
     with get_db() as conn:
         with conn.cursor() as cur:
@@ -67,6 +67,23 @@ def register_team(body: RegisterTeam):
         "keycloak_user_id": kc_user_id,
         "message": "Mannschaft erfolgreich angelegt. Du kannst dich jetzt einloggen.",
     }
+
+
+@router.get("/teams")
+def list_teams(_: CurrentUser = Depends(require_admin)):
+    """Admin-Übersicht aller Teams."""
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT id, name, created_at
+                   FROM teams
+                   ORDER BY created_at DESC"""
+            )
+            rows = cur.fetchall()
+    return [
+        {"id": r[0], "name": r[1], "created_at": r[2]}
+        for r in rows
+    ]
 
 
 @router.get("/me")

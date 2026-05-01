@@ -66,63 +66,85 @@ export default function ScoreEntryPage() {
   }
 
   return (
-    <div className="p-4 space-y-4 max-w-lg mx-auto">
-      <h2 className="text-xl font-bold">⛳ Score eingeben</h2>
-
-      <div className="grid grid-cols-2 gap-3">
-        <div className="col-span-2">
-          <Label>Spieler</Label>
-          <Select value={playerId} onValueChange={(v) => setPlayerId(v ?? '')}>
-            <SelectTrigger><SelectValue placeholder="Spieler wählen…" /></SelectTrigger>
-            <SelectContent>
-              {players.map((p) => <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
-        <div>
-          <Label>Datum</Label>
-          <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-        </div>
-        <div />
-        <div>
-          <Label>Course Rating (CR)</Label>
-          <Input type="number" step="0.1" placeholder="71.0" value={cr} onChange={(e) => setCr(e.target.value)} />
-        </div>
-        <div>
-          <Label>Slope</Label>
-          <Input type="number" placeholder="125" value={slope} onChange={(e) => setSlope(e.target.value)} />
-        </div>
+    <div className="p-5 sm:p-8 space-y-6">
+      <div className="space-y-2">
+        <p className="page-kicker">Score Tracking</p>
+        <h2 className="page-title text-2xl font-semibold sm:text-3xl">Runde erfassen</h2>
+        <p className="text-sm text-muted-foreground">
+          Kursdaten, Spieltag und 18-Loch-Score in einem klaren Ablauf.
+        </p>
       </div>
 
-      <Card>
-        <CardHeader className="pb-2"><CardTitle className="text-sm">18-Loch-Grid</CardTitle></CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-6 gap-2">
-            {HOLES.map((hole, i) => (
-              <div key={hole} className="flex flex-col items-center gap-1">
-                <span className="text-xs text-muted-foreground">{hole}</span>
-                <Input
-                  ref={(el) => { inputRefs.current[i] = el }}
-                  inputMode="numeric"
-                  maxLength={2}
-                  value={scores[i]}
-                  onChange={(e) => handleScore(i, e.target.value)}
-                  className="text-center p-1 h-9 text-sm"
-                />
+      <div className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
+        <Card className="h-fit">
+          <CardHeader>
+            <CardTitle>Runden-Details</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label>Spieler</Label>
+              <Select value={playerId} onValueChange={(v) => setPlayerId(v ?? '')}>
+                <SelectTrigger><SelectValue placeholder="Spieler wählen…" /></SelectTrigger>
+                <SelectContent>
+                  {players.map((p) => <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Datum</Label>
+                <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
               </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+              <div />
+              <div>
+                <Label>Course Rating (CR)</Label>
+                <Input type="number" step="0.1" placeholder="71.0" value={cr} onChange={(e) => setCr(e.target.value)} />
+              </div>
+              <div>
+                <Label>Slope</Label>
+                <Input type="number" placeholder="125" value={slope} onChange={(e) => setSlope(e.target.value)} />
+              </div>
+            </div>
 
-      <div className="flex items-center justify-between text-sm bg-muted rounded-lg px-4 py-2">
-        <span>Total: <strong>{totalScore || '—'}</strong></span>
-        <span>Differenzial: <strong>{liveDiff ?? '—'}</strong></span>
+            <div className="rounded-2xl border bg-muted/40 px-4 py-3 text-sm">
+              <div className="flex items-center justify-between">
+                <span>Total</span>
+                <span className="font-semibold">{totalScore || '—'}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span>Differenzial</span>
+                <span className="font-semibold">{liveDiff ?? '—'}</span>
+              </div>
+            </div>
+
+            <Button className="w-full" onClick={handleSubmit} disabled={submitting}>
+              {submitting ? 'Speichern…' : 'Runde speichern'}
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2"><CardTitle>18-Loch-Grid</CardTitle></CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-6 gap-2">
+              {HOLES.map((hole, i) => (
+                <div key={hole} className="flex flex-col items-center gap-1">
+                  <span className="text-xs text-muted-foreground">{hole}</span>
+                  <Input
+                    ref={(el) => { inputRefs.current[i] = el }}
+                    inputMode="numeric"
+                    maxLength={2}
+                    value={scores[i]}
+                    onChange={(e) => handleScore(i, e.target.value)}
+                    className="text-center p-1 h-9 text-sm"
+                  />
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
       </div>
-
-      <Button className="w-full" onClick={handleSubmit} disabled={submitting}>
-        {submitting ? 'Speichern…' : 'Runde speichern'}
-      </Button>
     </div>
   )
 }

@@ -21,13 +21,22 @@ export default function DashboardPage() {
     return <p className="p-4 text-muted-foreground">Noch keine Spieler oder Runden vorhanden.</p>
 
   return (
-    <div className="p-4 space-y-3">
-      <h2 className="text-xl font-bold">🏆 Leaderboard</h2>
+    <div className="p-5 sm:p-8 space-y-6">
+      <div className="space-y-2">
+        <p className="page-kicker">Team Performance</p>
+        <div className="flex flex-wrap items-center gap-3">
+          <h2 className="page-title text-2xl font-semibold sm:text-3xl">Leaderboard</h2>
+          <Badge variant="secondary">Live</Badge>
+        </div>
+        <p className="text-sm text-muted-foreground max-w-2xl">
+          Sicht auf Rating, Konstanz und Form. Spieler ohne Runden wandern ans Ende.
+        </p>
+      </div>
 
       {/* Desktop-Tabelle */}
-      <div className="hidden sm:block overflow-x-auto rounded-lg border">
+      <div className="hidden sm:block overflow-x-auto rounded-2xl border bg-background/70">
         <table className="w-full text-sm">
-          <thead className="bg-muted text-muted-foreground">
+          <thead className="bg-muted/60 text-muted-foreground">
             <tr>
               <th className="p-3 text-left w-12">#</th>
               <th className="p-3 text-left">Name</th>

@@ -63,6 +63,10 @@ class CurrentUser:
     def is_player(self) -> bool:
         return "player" in self.roles
 
+    @property
+    def is_admin(self) -> bool:
+        return "admin" in self.roles
+
 
 def get_current_user(
     creds: HTTPAuthorizationCredentials = Depends(bearer_scheme),
@@ -100,4 +104,10 @@ def get_current_user(
 def require_captain(user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
     if not user.is_captain:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Captain-Rolle erforderlich.")
+    return user
+
+
+def require_admin(user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
+    if not user.is_admin:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Admin-Rolle erforderlich.")
     return user

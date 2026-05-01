@@ -11,6 +11,7 @@
   "ssoSessionMaxLifespan": 36000,
   "roles": {
     "realm": [
+      { "name": "admin", "description": "Globaler Admin – darf Mannschaften anlegen" },
       { "name": "captain", "description": "Mannschaftskapitän – darf Spieler & Runden verwalten" },
       { "name": "player",  "description": "Spieler – darf eigene Runden eintragen" }
     ]
