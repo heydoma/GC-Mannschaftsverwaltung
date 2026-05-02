@@ -7,6 +7,18 @@
 CREATE TABLE IF NOT EXISTS teams (
     id              SERIAL PRIMARY KEY,
     name            TEXT NOT NULL,
+    tenant_slug     TEXT UNIQUE,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Mandanten-Registry ---------------------------------------------
+CREATE TABLE IF NOT EXISTS tenants (
+    team_id         INTEGER PRIMARY KEY REFERENCES teams(id) ON DELETE CASCADE,
+    team_name       TEXT NOT NULL,
+    tenant_slug     TEXT NOT NULL UNIQUE,
+    schema_name     TEXT NOT NULL UNIQUE,
+    host            TEXT UNIQUE,
+    realm           TEXT,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

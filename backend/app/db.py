@@ -6,6 +6,8 @@ import psycopg2
 from psycopg2 import pool
 from dotenv import load_dotenv
 
+from app.context import get_auth_context, get_tenant_context
+
 load_dotenv()
 
 DATABASE_URL = os.getenv(
@@ -28,6 +30,20 @@ def get_db():
     """Context manager: holt eine Connection aus dem Pool, committed oder rollbacked automatisch."""
     conn = _get_pool().getconn()
     try:
+        tenant = get_tenant_context()
+        if tenant is not None:
+            with conn.cursor() as cur:
+                cur.execute(f"SET LOCAL search_path TO {tenant.schema_name}, public")
+                cur.execute("SELECT set_config('app.tenant_id', %s, true)", (str(tenant.team_id),))
+                cur.execute("SELECT set_config('app.tenant_schema', %s, true)", (tenant.schema_name,))
+
+        auth = get_auth_context()
+        if auth is not None:
+            with conn.cursor() as cur:
+                cur.execute("SELECT set_config('app.current_user_id', %s, true)", (str(auth.get("user_id") or ""),))
+                cur.execute("SELECT set_config('app.user_role', %s, true)", (str(auth.get("primary_role") or ""),))
+                cur.execute("SELECT set_config('app.user_roles', %s, true)", (",".join(auth.get("roles") or []),))
+
         yield conn
         conn.commit()
     except Exception:
