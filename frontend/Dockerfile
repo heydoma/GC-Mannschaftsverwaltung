@@ -7,6 +7,19 @@ COPY package*.json ./
 RUN npm ci --frozen-lockfile
 
 COPY . .
+
+# Vite-Variablen werden zur Build-Zeit ins Bundle eingebettet.
+# Werte werden von der CI als --build-arg übergeben.
+ARG VITE_API_URL=/api
+ARG VITE_KEYCLOAK_URL
+ARG VITE_KEYCLOAK_REALM=golf-team-manager
+ARG VITE_KEYCLOAK_CLIENT_ID=golf-frontend
+
+ENV VITE_API_URL=$VITE_API_URL \
+    VITE_KEYCLOAK_URL=$VITE_KEYCLOAK_URL \
+    VITE_KEYCLOAK_REALM=$VITE_KEYCLOAK_REALM \
+    VITE_KEYCLOAK_CLIENT_ID=$VITE_KEYCLOAK_CLIENT_ID
+
 RUN npm run build
 
 # ── Stage 2: Serve ───────────────────────────────────────────────────────────
