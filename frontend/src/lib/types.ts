@@ -36,6 +36,7 @@ export interface LeaderboardEntry {
   form_icon: string
   consistency: number | null
   current_whs_index: number | null
+  ranking_score: number | null
 }
 
 export interface RoundCreate {

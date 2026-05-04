@@ -68,7 +68,7 @@ function SortableSlot({
         <div className="flex flex-1 items-center justify-between gap-2">
           <div>
             <p className="font-medium text-sm">{player.name}</p>
-            <p className="text-xs text-muted-foreground">{player.form_icon} Rating: {player.weighted_rating?.toFixed(1) ?? '—'}</p>
+            <p className="text-xs text-muted-foreground">{player.form_icon} Rating: {player.ranking_score?.toFixed(1) ?? '—'}</p>
           </div>
           <div className="flex gap-1">
             <Button size="icon" variant="ghost" onClick={() => onOpen(slot.id)} title="Spieler tauschen">
@@ -360,7 +360,7 @@ export default function LineupPage() {
                       <div className="flex flex-1 items-center justify-between">
                         <div>
                           <p className="font-medium text-sm">{p.name}</p>
-                          <p className="text-xs text-muted-foreground">{p.form_icon} {p.weighted_rating?.toFixed(1) ?? '—'}</p>
+                          <p className="text-xs text-muted-foreground">{p.form_icon} {p.ranking_score?.toFixed(1) ?? '—'}</p>
                         </div>
                         <div className="flex gap-1">
                           <Button size="icon" variant="ghost" onClick={() => openDrawer('reserves', slot.id)}><Plus className="h-4 w-4 rotate-45" /></Button>
@@ -385,7 +385,7 @@ export default function LineupPage() {
                   <span className="w-5 font-semibold text-muted-foreground">{i + 1}.</span>
                   <span className="flex-1 font-medium">{p.name}</span>
                   <span>{p.form_icon}</span>
-                  <span className="text-muted-foreground">{p.weighted_rating?.toFixed(1) ?? '—'}</span>
+                  <span className="text-muted-foreground">{p.ranking_score?.toFixed(1) ?? '—'}</span>
                 </div>
               ))}
             </div>
@@ -432,7 +432,7 @@ export default function LineupPage() {
                     <div className="flex-1">
                       <p className="font-medium text-sm">{p.name}</p>
                       <p className="text-xs text-muted-foreground">
-                        {p.form_icon} Momentum: {p.momentum?.toFixed(1) ?? '—'} · Rating: {p.weighted_rating?.toFixed(1) ?? '—'}
+                        {p.form_icon} Momentum: {p.momentum?.toFixed(1) ?? '—'} · Rating: {p.ranking_score?.toFixed(1) ?? '—'}
                       </p>
                     </div>
                     <span className="text-lg">{p.form_icon}</span>

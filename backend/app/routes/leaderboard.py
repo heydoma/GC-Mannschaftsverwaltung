@@ -99,15 +99,14 @@ def get_leaderboard(user: CurrentUser = Depends(get_current_user)):
             "form_icon": momentum_data["form_icon"],
             "consistency": consistency,
             "current_whs_index": whs_index,
-            "_ranking_score": ranking_score,  # intern, wird nach dem Sortieren entfernt
+            "ranking_score": ranking_score,
         })
 
     # Sortierung nach Ranking-Score (ASC = besser), Spieler ohne Score ans Ende
     leaderboard.sort(
-        key=lambda x: (x["_ranking_score"] is None, x["_ranking_score"] or 0)
+        key=lambda x: (x["ranking_score"] is None, x["ranking_score"] or 0)
     )
     for i, entry in enumerate(leaderboard):
         entry["rank"] = i + 1
-        del entry["_ranking_score"]
 
     return leaderboard
