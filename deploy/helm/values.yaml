@@ -54,32 +54,49 @@ frontend:
 # ── Ingress ───────────────────────────────────────────────────────────────────
 ingress:
   enabled: true
-  className: "nginx"  # nginx-ingress-controller; alternativ: "traefik"
+  className: "nginx"        # nginx-ingress-controller; alternativ: "traefik"
   host: "DEINE_DOMAIN.de"
-  authHost: "auth.DEINE_DOMAIN.de"  # Keycloak-Subdomain
+  authHost: "auth.DEINE_DOMAIN.de"   # Keycloak-Subdomain
 
-  # TLS via cert-manager (Let's Encrypt)
+  # Wildcard-Subdomain pro Team: herren1.DEINE_DOMAIN.de, damen.DEINE_DOMAIN.de …
+  # Der Backend-Middleware löst den Tenant via Host-Header auf (resolve_tenant_by_host).
+  wildcardEnabled: true
+
+  # TLS via cert-manager
   tls: true
-  certIssuer: "letsencrypt-prod"  # ClusterIssuer Name in deinem Cluster
+  # HTTP01: funktioniert für normale Domains (herren1.domain.de einzeln)
+  # DNS01: nötig für Wildcard-Zertifikate (*.domain.de) – DNS-Provider konfigurieren
+  certIssuer: "letsencrypt-prod"        # ClusterIssuer für normale Domains
+  wildcardCertIssuer: "letsencrypt-dns" # ClusterIssuer mit DNS01-Solver für Wildcard
+
+# ── NetworkPolicy ─────────────────────────────────────────────────────────────
+# Isoliert die Datenbank: nur Backend-Pods dürfen PostgreSQL auf Port 5432 erreichen.
+# Voraussetzung: CNI-Plugin mit NetworkPolicy-Support (Calico, Cilium, Weave).
+networkPolicy:
+  enabled: true
 
 # ── Secrets ───────────────────────────────────────────────────────────────────
-# Option A (einfach, für den Anfang): Passwörter hier eintragen.
-#   → Helm legt ein Kubernetes Secret an. values.prod.yaml ist in .gitignore.
-# Option B (Production-empfohlen): Secrets extern voranlegen (Sealed Secrets /
-#   External Secrets Operator) und nur den Secret-Namen hier eintragen.
-#   → backend.existingSecret setzen, postgresql.auth.existingSecret setzen.
+# Standard (Production): Sealed Secrets – verschlüsselt und Git-safe.
+#   1. deploy/sealed-secrets/*.yaml Vorlagen ausfüllen
+#   2. Mit kubeseal versiegeln → *.sealedsecret.yaml (sicher für Git)
+#   3. existingSecret-Namen hier eintragen, password leer lassen
+#
+# Alternativ für lokale Entwicklung: password direkt setzen (values.prod.yaml).
 secrets:
-  keycloakAdminPassword: ""   # Option A: Passwort hier; Option B: leer lassen
+  # Name des vorher angelegten Sealed Secret für Keycloak-Admin (leer = aus values)
+  existingKeycloakSecret: "gcm-keycloak-secret"
+  keycloakAdminPassword: ""   # nur setzen wenn kein existingKeycloakSecret
 
 # ── PostgreSQL (Bitnami Sub-Chart) ────────────────────────────────────────────
 postgresql:
   enabled: true
   auth:
     username: "golf"
-    password: ""             # Option A: Passwort hier setzen
     database: "golf_team"
-    # Option B: vorher erstelltes Secret referenzieren:
-    # existingSecret: "my-postgres-secret"   # muss key 'password' enthalten
+    # Sealed Secret referenzieren (empfohlen):
+    existingSecret: "gcm-postgresql-secret"  # muss key 'password' enthalten
+    # Alternativ für lokale Entwicklung direkt setzen:
+    password: ""
   primary:
     persistence:
       enabled: true
@@ -97,8 +114,10 @@ keycloak:
   enabled: true
   auth:
     adminUser: "admin"
-    adminPassword: ""    # Option A: hier setzen; Option B: existingSecret nutzen
-    # existingSecret: "my-keycloak-secret"   # muss key 'admin-password' enthalten
+    existingSecret: "gcm-keycloak-secret"   # Sealed Secret (empfohlen)
+    passwordSecretKey: "admin-password"
+    # Für lokale Entwicklung stattdessen:
+    # adminPassword: "lokales-passwort"
   # Production-Modus hinter nginx-Ingress (TLS-Terminierung am Ingress)
   extraEnvVars:
     - name: KC_PROXY

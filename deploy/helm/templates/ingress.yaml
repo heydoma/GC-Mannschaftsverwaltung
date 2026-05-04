@@ -1,17 +1,37 @@
 {{- if .Values.ingress.enabled }}
+{{- $fullname := include "gcm.fullname" . }}
+
+# ── Wildcard-Zertifikat (*.domain.de) ────────────────────────────────────────
+# Benötigt einen ClusterIssuer mit DNS01-Solver (z.B. Cloudflare, Route53).
+# cert-manager erstellt damit ein Zertifikat das alle Team-Subdomains abdeckt.
+{{- if and .Values.ingress.tls .Values.ingress.wildcardEnabled }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ $fullname }}-wildcard-tls
+  labels:
+    {{- include "gcm.labels" . | nindent 4 }}
+spec:
+  secretName: {{ $fullname }}-wildcard-tls
+  issuerRef:
+    name: {{ .Values.ingress.wildcardCertIssuer }}
+    kind: ClusterIssuer
+  dnsNames:
+    - {{ .Values.ingress.host | quote }}
+    - {{ printf "*.%s" .Values.ingress.host | quote }}
+---
+{{- end }}
+
+# ── Haupt-Ingress: App + Team-Subdomains ─────────────────────────────────────
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: {{ include "gcm.fullname" . }}
+  name: {{ $fullname }}-app
   labels:
     {{- include "gcm.labels" . | nindent 4 }}
   annotations:
-    # cert-manager: automatisches TLS-Zertifikat via Let's Encrypt
-    cert-manager.io/cluster-issuer: {{ .Values.ingress.certIssuer | quote }}
-    # nginx-Ingress: größere Header für Keycloak-Tokens erlauben
     nginx.ingress.kubernetes.io/proxy-buffer-size: "128k"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
-    # Security Headers
     nginx.ingress.kubernetes.io/configuration-snippet: |
       more_set_headers "X-Frame-Options: DENY";
       more_set_headers "X-Content-Type-Options: nosniff";
@@ -22,13 +42,13 @@ spec:
   tls:
     - hosts:
         - {{ .Values.ingress.host | quote }}
-      secretName: {{ include "gcm.fullname" . }}-tls
-    - hosts:
-        - {{ .Values.ingress.authHost | quote }}
-      secretName: {{ include "gcm.fullname" . }}-auth-tls
+        {{- if .Values.ingress.wildcardEnabled }}
+        - {{ printf "*.%s" .Values.ingress.host | quote }}
+        {{- end }}
+      secretName: {{ $fullname }}-wildcard-tls
   {{- end }}
   rules:
-    # Haupt-App: API → Backend, alles andere → Frontend
+    # Haupt-Domain: API → Backend, alles andere → Frontend
     - host: {{ .Values.ingress.host | quote }}
       http:
         paths:
@@ -36,17 +56,60 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: {{ include "gcm.fullname" . }}-backend
+                name: {{ $fullname }}-backend
                 port:
                   number: 8000
           - path: /
             pathType: Prefix
             backend:
               service:
-                name: {{ include "gcm.fullname" . }}-frontend
+                name: {{ $fullname }}-frontend
                 port:
                   number: 80
-    # Keycloak auf eigener Subdomain
+    {{- if .Values.ingress.wildcardEnabled }}
+    # Wildcard-Subdomain: jedes Team bekommt z.B. herren1.domain.de
+    # Das Backend liest den Host-Header und löst den Tenant auf (resolve_tenant_by_host).
+    - host: {{ printf "*.%s" .Values.ingress.host | quote }}
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $fullname }}-backend
+                port:
+                  number: 8000
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $fullname }}-frontend
+                port:
+                  number: 80
+    {{- end }}
+---
+# ── Keycloak-Ingress (eigene Subdomain) ───────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $fullname }}-auth
+  labels:
+    {{- include "gcm.labels" . | nindent 4 }}
+  annotations:
+    {{- if .Values.ingress.tls }}
+    cert-manager.io/cluster-issuer: {{ .Values.ingress.certIssuer | quote }}
+    {{- end }}
+    nginx.ingress.kubernetes.io/proxy-buffer-size: "128k"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+spec:
+  ingressClassName: {{ .Values.ingress.className | quote }}
+  {{- if .Values.ingress.tls }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.authHost | quote }}
+      secretName: {{ $fullname }}-auth-tls
+  {{- end }}
+  rules:
     - host: {{ .Values.ingress.authHost | quote }}
       http:
         paths:
