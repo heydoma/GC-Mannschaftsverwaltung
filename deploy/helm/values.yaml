@@ -63,18 +63,23 @@ ingress:
   certIssuer: "letsencrypt-prod"  # ClusterIssuer Name in deinem Cluster
 
 # ── Secrets ───────────────────────────────────────────────────────────────────
-# Werte hier nur für lokale Tests – in Production über externe Secret-Verwaltung!
+# Option A (einfach, für den Anfang): Passwörter hier eintragen.
+#   → Helm legt ein Kubernetes Secret an. values.prod.yaml ist in .gitignore.
+# Option B (Production-empfohlen): Secrets extern voranlegen (Sealed Secrets /
+#   External Secrets Operator) und nur den Secret-Namen hier eintragen.
+#   → backend.existingSecret setzen, postgresql.auth.existingSecret setzen.
 secrets:
-  databaseUrl: ""          # postgresql://user:pass@host:5432/db – wird auto-gesetzt
-  keycloakAdminPassword: "BITTE_AENDERN"
+  keycloakAdminPassword: ""   # Option A: Passwort hier; Option B: leer lassen
 
 # ── PostgreSQL (Bitnami Sub-Chart) ────────────────────────────────────────────
 postgresql:
   enabled: true
   auth:
     username: "golf"
-    password: "BITTE_AENDERN"   # in Production via sealed secret / external secret
+    password: ""             # Option A: Passwort hier setzen
     database: "golf_team"
+    # Option B: vorher erstelltes Secret referenzieren:
+    # existingSecret: "my-postgres-secret"   # muss key 'password' enthalten
   primary:
     persistence:
       enabled: true
@@ -92,7 +97,8 @@ keycloak:
   enabled: true
   auth:
     adminUser: "admin"
-    adminPassword: "BITTE_AENDERN"   # in Production via sealed secret / external secret
+    adminPassword: ""    # Option A: hier setzen; Option B: existingSecret nutzen
+    # existingSecret: "my-keycloak-secret"   # muss key 'admin-password' enthalten
   # Production-Modus hinter nginx-Ingress (TLS-Terminierung am Ingress)
   extraEnvVars:
     - name: KC_PROXY
