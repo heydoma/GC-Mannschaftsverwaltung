@@ -37,7 +37,7 @@ jobs:
     outputs:
       image_tag: ${{ steps.tag.outputs.tag }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Image-Tag bestimmen
         id: tag
@@ -72,7 +72,7 @@ jobs:
     outputs:
       image_tag: ${{ steps.tag.outputs.tag }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Image-Tag bestimmen
         id: tag
@@ -110,7 +110,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: production   # optional: GitHub Environment mit Approval-Schutz
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Image-Tag bestimmen
         id: tag
