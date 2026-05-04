@@ -7,7 +7,7 @@ from app.auth import CurrentUser, get_current_user, require_admin
 from app.auth.admin import add_to_team, create_user, delete_user, get_user_by_email
 from app.auth.keycloak import decode_access_token, KEYCLOAK_REALM
 from app.db import get_db
-from app.tenancy import drop_tenant_schema, ensure_tenant_schema, resolve_tenant_by_team_id
+from app.tenancy import archive_tenant_rounds, drop_tenant_schema, ensure_tenant_schema, resolve_tenant_by_team_id
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -118,7 +118,9 @@ def list_teams(_: CurrentUser = Depends(require_admin)):
 
 @router.delete("/teams/{team_id}", status_code=204)
 def delete_team(team_id: int, _: CurrentUser = Depends(require_admin)):
-    """Admin: löscht eine Mannschaft vollständig (Schema CASCADE + DB-Einträge)."""
+    """Admin: löscht eine Mannschaft vollständig (Schema CASCADE + DB-Einträge).
+    Runden werden vorher in public.rounds_archive gesichert (für ML-Auswertungen).
+    """
     # 1) Existenz prüfen
     with get_db() as conn:
         with conn.cursor() as cur:
@@ -127,10 +129,15 @@ def delete_team(team_id: int, _: CurrentUser = Depends(require_admin)):
     if not row:
         raise HTTPException(404, "Mannschaft nicht gefunden.")
 
-    # 2) Tenant-Schema mit allen Tabellen löschen (players, rounds, matchdays …)
+    team_name = row[0]
+
+    # 2) Runden archivieren – muss VOR dem Schema-Drop passieren
+    archived = archive_tenant_rounds(team_id, team_name)
+
+    # 3) Tenant-Schema mit allen Tabellen löschen (players, rounds, matchdays …)
     drop_tenant_schema(team_id)
 
-    # 3) Team aus DB löschen – cascadiert automatisch auf public.tenants + public.team_memberships
+    # 4) Team aus DB löschen – cascadiert automatisch auf public.tenants + public.team_memberships
     with get_db() as conn:
         with conn.cursor() as cur:
             cur.execute("DELETE FROM public.teams WHERE id = %s", (team_id,))

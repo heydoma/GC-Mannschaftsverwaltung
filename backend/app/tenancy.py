@@ -357,6 +357,37 @@ def ensure_tenant_schema(
     return tenant_slug
 
 
+def archive_tenant_rounds(team_id: int, team_name: str) -> int:
+    """Kopiert alle Runden des Tenants in public.rounds_archive.
+
+    Muss VOR drop_tenant_schema aufgerufen werden.
+    Gibt die Anzahl archivierter Runden zurück.
+    """
+    schema_name = tenant_schema_name(team_id)
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                sql.SQL(
+                    """
+                    INSERT INTO public.rounds_archive
+                        (original_round_id, team_id, team_name, player_name,
+                         played_on, course_id, course_rating, slope_rating,
+                         hole_scores, hole_pars, differential, form_differential,
+                         is_hcp_relevant)
+                    SELECT
+                        r.id, p.team_id, %s, p.name,
+                        r.played_on, r.course_id, r.course_rating, r.slope_rating,
+                        r.hole_scores, r.hole_pars, r.differential, r.form_differential,
+                        r.is_hcp_relevant
+                    FROM {}.rounds r
+                    JOIN {}.players p ON p.id = r.player_id
+                    """
+                ).format(sql.Identifier(schema_name), sql.Identifier(schema_name)),
+                (team_name,),
+            )
+            return cur.rowcount
+
+
 def drop_tenant_schema(team_id: int) -> None:
     """Löscht das komplette Tenant-Schema inkl. aller Tabellen (CASCADE)."""
     schema_name = tenant_schema_name(team_id)

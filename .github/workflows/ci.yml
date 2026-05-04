@@ -41,7 +41,7 @@ jobs:
 
       - name: Apply all migrations (alphabetisch)
         run: |
-          for f in $(ls db/migrations/*.sql | sort); do
+          for f in $(ls db/migrations/*.sql 2>/dev/null | sort); do
             echo "→ $f"
             psql -h localhost -U golf -d golf_team -f "$f"
           done
