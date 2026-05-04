@@ -1,16 +1,21 @@
 import keycloak from './keycloak'
-import type { Player, Round, LeaderboardEntry, RoundCreate, TeamSummary, Course } from './types'
+import type { Player, Round, LeaderboardEntry, RoundCreate, TeamSummary, Course, Matchday, TeamMembership } from './types'
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:8000/api'
 
+/** Aktives Team – wird von auth.tsx gesetzt und hier ausgelesen */
+export let activeTeamId: number | null = null
+export function setActiveTeamId(id: number | null) { activeTeamId = id }
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  // Refresh token if needed before every request
+  // Refresh token if needed before every request; redirect to login if expired
   if (keycloak.authenticated) {
-    await keycloak.updateToken(30).catch(() => {/* expired – let backend reject */})
+    await keycloak.updateToken(30).catch(() => keycloak.login())
   }
   const token = keycloak.token
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   if (token) headers['Authorization'] = `Bearer ${token}`
+  if (activeTeamId != null) headers['X-Active-Team'] = String(activeTeamId)
 
   const res = await fetch(`${BASE}${path}`, {
     headers,
@@ -85,17 +90,57 @@ export const registerTeam = (data: RegisterTeamPayload) =>
 
 export const getTeams = () => request<TeamSummary[]>('/auth/teams')
 
+export const deleteTeam = (teamId: number) =>
+  request<void>(`/auth/teams/${teamId}`, { method: 'DELETE' })
+
+export const getMyTeams = () => request<TeamMembership[]>('/auth/my-teams')
+
 // ── Courses ─────────────────────────────────────────────────────────
 export const getCourses = () => request<Course[]>('/courses')
 
-export const createCourse = (name: string) =>
+export interface CoursePayload {
+  name: string
+  course_rating?: number | null
+  slope_rating?: number | null
+  hole_pars?: number[] | null
+}
+
+export const createCourse = (data: CoursePayload) =>
   request<Course>('/courses', {
     method: 'POST',
-    body: JSON.stringify({ name }),
+    body: JSON.stringify(data),
   })
 
-export const updateCourse = (id: number, name: string) =>
+export const updateCourse = (id: number, data: CoursePayload) =>
   request<Course>(`/courses/${id}`, {
     method: 'PUT',
-    body: JSON.stringify({ name }),
+    body: JSON.stringify(data),
   })
+
+// ── Matchdays ────────────────────────────────────────────────────────
+export const getMatchdays = () => request<Matchday[]>('/matchdays')
+
+export interface MatchdayCreatePayload {
+  label: string
+  match_date?: string | null
+  starters?: number[]
+  reserves?: number[]
+}
+
+export const createMatchday = (data: MatchdayCreatePayload) =>
+  request<Matchday>('/matchdays', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+
+export const updateMatchday = (id: number, data: Partial<MatchdayCreatePayload>) =>
+  request<Matchday>(`/matchdays/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  })
+
+export const togglePublishMatchday = (id: number) =>
+  request<Matchday>(`/matchdays/${id}/publish`, { method: 'PATCH' })
+
+export const deleteMatchday = (id: number) =>
+  request<void>(`/matchdays/${id}`, { method: 'DELETE' })

@@ -2,8 +2,8 @@ import os
 from contextlib import contextmanager
 from typing import Optional
 
-import psycopg2
-from psycopg2 import pool
+from psycopg2 import pool as psycopg2_pool
+from psycopg2 import sql
 from dotenv import load_dotenv
 
 from app.context import get_auth_context, get_tenant_context
@@ -15,13 +15,13 @@ DATABASE_URL = os.getenv(
     "postgresql://golf:golf_dev_pw@localhost:5432/golf_team",
 )
 
-_pool: Optional[psycopg2.pool.ThreadedConnectionPool] = None
+_pool: Optional[psycopg2_pool.ThreadedConnectionPool] = None
 
 
-def _get_pool() -> psycopg2.pool.ThreadedConnectionPool:
+def _get_pool() -> psycopg2_pool.ThreadedConnectionPool:
     global _pool
     if _pool is None:
-        _pool = psycopg2.pool.ThreadedConnectionPool(1, 10, dsn=DATABASE_URL)
+        _pool = psycopg2_pool.ThreadedConnectionPool(1, 10, dsn=DATABASE_URL)
     return _pool
 
 
@@ -33,7 +33,11 @@ def get_db():
         tenant = get_tenant_context()
         if tenant is not None:
             with conn.cursor() as cur:
-                cur.execute(f"SET LOCAL search_path TO {tenant.schema_name}, public")
+                cur.execute(
+                    sql.SQL("SET LOCAL search_path TO {}, public").format(
+                        sql.Identifier(tenant.schema_name)
+                    )
+                )
                 cur.execute("SELECT set_config('app.tenant_id', %s, true)", (str(tenant.team_id),))
                 cur.execute("SELECT set_config('app.tenant_schema', %s, true)", (tenant.schema_name,))
 

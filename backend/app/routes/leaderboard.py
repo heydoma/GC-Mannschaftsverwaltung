@@ -19,7 +19,7 @@ def get_leaderboard(user: CurrentUser = Depends(get_current_user)):
                 SELECT
                     p.id, p.name,
                     r.played_on, r.course_rating, r.slope_rating, r.hole_scores,
-                    r.differential
+                    r.differential, r.is_hcp_relevant
                 FROM players p
                 LEFT JOIN rounds r ON r.player_id = p.id
                 WHERE p.team_id = %s
@@ -32,9 +32,9 @@ def get_leaderboard(user: CurrentUser = Depends(get_current_user)):
     # Spieler gruppieren
     players: dict[int, dict] = {}
     for row in rows:
-        pid, name, played_on, cr, slope, hole_scores, differential = row
+        pid, name, played_on, cr, slope, hole_scores, differential, is_hcp_relevant = row
         if pid not in players:
-            players[pid] = {"id": pid, "name": name, "rounds": []}
+            players[pid] = {"id": pid, "name": name, "rounds": [], "hcp_diffs": []}
         if played_on is not None:
             diff = differential
             if diff is None:
@@ -44,15 +44,19 @@ def get_leaderboard(user: CurrentUser = Depends(get_current_user)):
                     diff = None
             if diff is not None:
                 players[pid]["rounds"].append({"differential": float(diff), "played_on": played_on})
+                if is_hcp_relevant is not False:
+                    players[pid]["hcp_diffs"].append(float(diff))
 
     leaderboard = []
     for p in players.values():
         rounds = p["rounds"]
         diffs = [r["differential"] for r in rounds]
+        hcp_diffs = p["hcp_diffs"]
 
         weighted_rating = GolfEngine.calc_weighted_rating(rounds)
         momentum_data = GolfEngine.calc_momentum(diffs[-20:])
         consistency = GolfEngine.calc_consistency(diffs)
+        whs_index = GolfEngine.calc_whs_index(hcp_diffs[-20:])
 
         leaderboard.append({
             "rank": 0,  # wird unten gesetzt
@@ -65,6 +69,7 @@ def get_leaderboard(user: CurrentUser = Depends(get_current_user)):
             "momentum": momentum_data["momentum"],
             "form_icon": momentum_data["form_icon"],
             "consistency": consistency,
+            "current_whs_index": whs_index,
         })
 
     # Sortierung: mit Rating zuerst (ASC), Spieler ohne Runden ans Ende

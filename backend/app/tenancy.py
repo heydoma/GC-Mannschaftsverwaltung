@@ -46,12 +46,17 @@ def _ensure_tenant_registry(conn) -> None:
             """CREATE TABLE IF NOT EXISTS public.tenants (
                    team_id         INTEGER PRIMARY KEY REFERENCES public.teams(id) ON DELETE CASCADE,
                    team_name       TEXT NOT NULL,
-                   tenant_slug     TEXT NOT NULL UNIQUE,
+                   tenant_slug     TEXT UNIQUE,
                    schema_name     TEXT NOT NULL UNIQUE,
                    host            TEXT UNIQUE,
                    realm           TEXT,
                    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
                )"""
+        )
+        # Migration: tenant_slug-Spalte nachrüsten falls Tabelle aus älterer Version stammt
+        cur.execute(
+            """ALTER TABLE public.tenants
+               ADD COLUMN IF NOT EXISTS tenant_slug TEXT UNIQUE"""
         )
 
 
@@ -63,8 +68,8 @@ def resolve_tenant_by_host(host: str) -> Optional[TenantContext]:
     with get_db() as conn:
         _ensure_tenant_registry(conn)
         with conn.cursor() as cur:
-            cur.execute(tenant_slug, 
-                """SELECT team_id, schema_name, realm, host
+            cur.execute(
+                """SELECT team_id, schema_name, tenant_slug, realm, host
                    FROM public.tenants
                    WHERE lower(host) = %s""",
                 (host,),
@@ -87,8 +92,27 @@ def resolve_tenant_by_team_id(team_id: int) -> Optional[TenantContext]:
     return tenant_from_row(row) if row else None
 
 
-def resolve_tenant_by_slug(tenant_slug: str) -> Optional[TenantContext]:Optional[str]:
-    """Create tenant schema and update registry. Returns the generated tenant_slug if new, else existing."""
+def resolve_tenant_by_slug(tenant_slug: str) -> Optional[TenantContext]:
+    with get_db() as conn:
+        _ensure_tenant_registry(conn)
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT team_id, schema_name, tenant_slug, realm, host
+                   FROM public.tenants
+                   WHERE tenant_slug = %s""",
+                (tenant_slug,),
+            )
+            row = cur.fetchone()
+    return tenant_from_row(row) if row else None
+
+
+def ensure_tenant_schema(
+    team_id: int,
+    team_name: str = None,
+    host: str = None,
+    realm: str = None,
+) -> Optional[str]:
+    """Create tenant schema and update registry. Returns the generated tenant_slug."""
     schema_name = tenant_schema_name(team_id)
     team_name = (team_name or f"Tenant {team_id}").strip()
     host = normalize_host(host)
@@ -97,35 +121,21 @@ def resolve_tenant_by_slug(tenant_slug: str) -> Optional[TenantContext]:Optional
     with get_db() as conn:
         _ensure_tenant_registry(conn)
         with conn.cursor() as cur:
-            # Check if tenant already exists
+            # Bestehenden Slug beibehalten; bei NULL (ältere Zeile ohne Slug) neu generieren
             cur.execute("SELECT tenant_slug FROM public.tenants WHERE team_id = %s", (team_id,))
             existing = cur.fetchone()
-            tenant_slug = existing[0] if existing else generate_tenant_slug()
+            tenant_slug = (existing[0] if existing else None) or generate_tenant_slug()
 
             cur.execute(
                 """INSERT INTO public.tenants (team_id, team_name, tenant_slug, schema_name, host, realm)
                    VALUES (%s, %s, %s, %s, %s, %s)
                    ON CONFLICT (team_id) DO UPDATE
                    SET team_name = EXCLUDED.team_name,
+                       tenant_slug = COALESCE(public.tenants.tenant_slug, EXCLUDED.tenant_slug),
                        schema_name = EXCLUDED.schema_name,
                        host = COALESCE(EXCLUDED.host, public.tenants.host),
                        realm = COALESCE(EXCLUDED.realm, public.tenants.realm)""",
-                (team_id, team_name, tenant_slugant {team_id}").strip()
-    host = normalize_host(host)
-    realm = realm or DEFAULT_REALM
-
-    with get_db() as conn:
-        _ensure_tenant_registry(conn)
-        with conn.cursor() as cur:
-            cur.execute(
-                """INSERT INTO public.tenants (team_id, team_name, schema_name, host, realm)
-                   VALUES (%s, %s, %s, %s, %s)
-                   ON CONFLICT (team_id) DO UPDATE
-                   SET team_name = EXCLUDED.team_name,
-                       schema_name = EXCLUDED.schema_name,
-                       host = COALESCE(EXCLUDED.host, public.tenants.host),
-                       realm = COALESCE(EXCLUDED.realm, public.tenants.realm)""",
-                (team_id, team_name, schema_name, host, realm),
+                (team_id, team_name, tenant_slug, schema_name, host, realm),
             )
 
             cur.execute(sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(sql.Identifier(schema_name)))
@@ -172,10 +182,17 @@ def resolve_tenant_by_slug(tenant_slug: str) -> Optional[TenantContext]:Optional
                         slope_rating    INTEGER NOT NULL CHECK (slope_rating BETWEEN 55 AND 155),
                         hole_scores     INTEGER[] NOT NULL CHECK (array_length(hole_scores, 1) = 18),
                         differential    NUMERIC(6, 1),
+                        is_hcp_relevant BOOLEAN NOT NULL DEFAULT true,
                         created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
                     )
                     """
                 ).format(sql.Identifier(schema_name), sql.Identifier(schema_name))
+            )
+            # Migration: is_hcp_relevant nachrüsten falls Tabelle aus älterer Version stammt
+            cur.execute(
+                sql.SQL(
+                    "ALTER TABLE {}.rounds ADD COLUMN IF NOT EXISTS is_hcp_relevant BOOLEAN NOT NULL DEFAULT true"
+                ).format(sql.Identifier(schema_name))
             )
             cur.execute(
                 sql.SQL("CREATE INDEX IF NOT EXISTS {} ON {}.rounds (player_id, played_on DESC)").format(
@@ -188,38 +205,30 @@ def resolve_tenant_by_slug(tenant_slug: str) -> Optional[TenantContext]:Optional
                 )
             )
 
-            cur.execute(sql.SQL("SELECT count(*) FROM {}.players").format(sql.Identifier(schema_name)))
-            player_count = cur.fetchone()[0]
-            if player_count == 0:
-                cur.execute(
-                    sql.SQL(
-                        """
-                        INSERT INTO {}.players (id, team_id, keycloak_user_id, name, email, current_rating, current_whs_index, weighted_rating, momentum_score, created_at)
-                        SELECT id, team_id, keycloak_user_id, name, email, current_rating, current_whs_index, weighted_rating, momentum_score, created_at
-                        FROM public.players
-                        WHERE team_id = %s
-                        ORDER BY id
-                        """
-                    ).format(sql.Identifier(schema_name)),
-                    (team_id,),
+            cur.execute(
+                sql.SQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS {}.matchdays (
+                        id          SERIAL PRIMARY KEY,
+                        label       TEXT NOT NULL,
+                        match_date  DATE,
+                        starters    INTEGER[] NOT NULL DEFAULT ARRAY[]::INTEGER[],
+                        reserves    INTEGER[] NOT NULL DEFAULT ARRAY[]::INTEGER[],
+                        published   BOOLEAN NOT NULL DEFAULT false,
+                        created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+                    )
+                    """
+                ).format(sql.Identifier(schema_name))
+            )
+            cur.execute(
+                sql.SQL("CREATE INDEX IF NOT EXISTS {} ON {}.matchdays (match_date DESC)").format(
+                    sql.Identifier(f"idx_{schema_name}_matchdays_date"), sql.Identifier(schema_name)
                 )
+            )
 
-            cur.execute(sql.SQL("SELECT count(*) FROM {}.rounds").format(sql.Identifier(schema_name)))
-            round_count = cur.fetchone()[0]
-            if round_count == 0:
-                cur.execute(
-                    sql.SQL(
-                        """
-                        INSERT INTO {}.rounds (id, player_id, course_id, played_on, course_rating, slope_rating, hole_scores, differential, created_at)
-                        SELECT r.id, r.player_id, r.course_id, r.played_on, r.course_rating, r.slope_rating, r.hole_scores, r.differential, r.created_at
-                        FROM public.rounds r
-                        JOIN public.players p ON p.id = r.player_id
-                        WHERE p.team_id = %s
-                        ORDER BY r.id
-                        """
-                    ).format(sql.Identifier(schema_name)),
-                    (team_id,),
-                )
+            # Session-Config setzen, damit RLS-Policies bei Folgeaufrufen nicht blockieren
+            cur.execute("SELECT set_config('app.tenant_id', %s, true)", (str(team_id),))
+            cur.execute("SELECT set_config('app.user_role', %s, true)", ("captain",))
 
             cur.execute(
                 sql.SQL("SELECT setval(pg_get_serial_sequence(%s, 'id'), GREATEST((SELECT COALESCE(MAX(id), 0) FROM {}.players), 1), true)").format(
@@ -314,7 +323,6 @@ def resolve_tenant_by_slug(tenant_slug: str) -> Optional[TenantContext]:Optional
                     USING (
                         current_setting('app.user_role', true) = 'captain'
                         AND EXISTS (
-    """Initialize schemas for all existing teams on startup."""
                             SELECT 1
                             FROM {}.players p
                             WHERE p.id = rounds.player_id
@@ -327,8 +335,6 @@ def resolve_tenant_by_slug(tenant_slug: str) -> Optional[TenantContext]:Optional
                             SELECT 1
                             FROM {}.players p
                             WHERE p.id = rounds.player_id
-    return tenant_slug
-
                               AND p.team_id = NULLIF(current_setting('app.tenant_id', true), '')::integer
                         )
                     )
@@ -336,11 +342,49 @@ def resolve_tenant_by_slug(tenant_slug: str) -> Optional[TenantContext]:Optional
                 ).format(sql.Identifier(schema_name), sql.Identifier(schema_name), sql.Identifier(schema_name))
             )
 
+    return tenant_slug
+
+
+def drop_tenant_schema(team_id: int) -> None:
+    """Löscht das komplette Tenant-Schema inkl. aller Tabellen (CASCADE)."""
+    schema_name = tenant_schema_name(team_id)
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                sql.SQL("DROP SCHEMA IF EXISTS {} CASCADE").format(sql.Identifier(schema_name))
+            )
+
+
+def get_team_membership(keycloak_user_id: str, team_id: int):
+    """Liest Mitgliedschaft eines Users in einem Team. Gibt {'role': ...} oder None zurück."""
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT role FROM public.team_memberships WHERE keycloak_user_id = %s AND team_id = %s",
+                (keycloak_user_id, team_id),
+            )
+            row = cur.fetchone()
+    return {"role": row[0]} if row else None
+
 
 def bootstrap_tenant_schemas() -> None:
+    """Initialize schemas for all existing teams on startup."""
     with get_db() as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT id, name FROM public.teams ORDER BY id")
             teams = cur.fetchall()
     for team_id, team_name in teams:
         ensure_tenant_schema(team_id, team_name=team_name)
+        # Bestehende Spieler in team_memberships migrieren falls noch nicht vorhanden
+        schema_name = f"tenant_{team_id}"
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    sql.SQL(
+                        """INSERT INTO public.team_memberships (keycloak_user_id, team_id, role)
+                           SELECT p.keycloak_user_id, p.team_id, 'player'
+                           FROM {}.players p
+                           WHERE p.keycloak_user_id IS NOT NULL
+                           ON CONFLICT DO NOTHING"""
+                    ).format(sql.Identifier(schema_name))
+                )

@@ -78,10 +78,26 @@ def _get_realm_role(role_name: str, realm: Optional[str] = None) -> dict:
     return resp.json()
 
 
+def get_user_by_email(email: str) -> Optional[dict]:
+    """Sucht einen existierenden Keycloak-User per E-Mail. Gibt User-Dict oder None zurück."""
+    realm = _realm_for_admin()
+    resp = httpx.get(
+        f"{_admin_base(realm)}/users",
+        headers=_headers(realm),
+        params={"email": email.lower(), "exact": "true"},
+        timeout=5.0,
+    )
+    if resp.status_code != 200:
+        raise KeycloakError(f"User-Suche fehlgeschlagen: {resp.text}")
+    users = resp.json()
+    return users[0] if users else None
+
+
 def create_user(
     *, email: str, name: str, password: str, team_id: int, role: str,
 ) -> str:
     """Legt User in Keycloak an, setzt team_id-Attribut + Realm-Rolle. Liefert die Keycloak-User-ID."""
+    from app.db import get_db  # lokaler Import verhindert zirkuläre Abhängigkeit
     realm = _realm_for_admin()
     admin_base = _admin_base(realm)
     ensure_user_profile_unmanaged()
@@ -119,11 +135,46 @@ def create_user(
         timeout=5.0,
     )
     if role_resp.status_code not in (204, 200):
-        # Cleanup: User wieder löschen, sonst hängt er ohne Rolle
         delete_user(user_id)
         raise KeycloakError(f"Rollen-Zuweisung fehlgeschlagen: {role_resp.text}")
 
+    # 3) Team-Mitgliedschaft in DB speichern
+    try:
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO public.team_memberships (keycloak_user_id, team_id, role) "
+                    "VALUES (%s, %s, %s) ON CONFLICT (keycloak_user_id, team_id) DO UPDATE SET role = EXCLUDED.role",
+                    (user_id, team_id, role),
+                )
+    except Exception:
+        pass  # DB-Fehler hier nicht kritisch – Fallback auf JWT-Rollen greift
+
     return user_id
+
+
+def add_to_team(keycloak_user_id: str, team_id: int, role: str) -> None:
+    """Fügt einen existierenden Keycloak-User einem weiteren Team hinzu (DB-Mitgliedschaft + Rolle)."""
+    from app.db import get_db
+    # Rolle in Keycloak aktualisieren wenn nötig (Realm-Rolle auf höchste setzen)
+    realm = _realm_for_admin()
+    current_roles = get_user_realm_roles(keycloak_user_id)
+    if role == "captain" and "captain" not in current_roles:
+        role_info = _get_realm_role("captain", realm)
+        httpx.post(
+            f"{_admin_base(realm)}/users/{keycloak_user_id}/role-mappings/realm",
+            headers=_headers(realm),
+            json=[{"id": role_info["id"], "name": role_info["name"]}],
+            timeout=5.0,
+        )
+    # Mitgliedschaft in DB
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO public.team_memberships (keycloak_user_id, team_id, role) "
+                "VALUES (%s, %s, %s) ON CONFLICT (keycloak_user_id, team_id) DO UPDATE SET role = EXCLUDED.role",
+                (keycloak_user_id, team_id, role),
+            )
 
 
 def delete_user(user_id: str) -> None:

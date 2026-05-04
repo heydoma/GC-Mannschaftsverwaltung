@@ -18,6 +18,7 @@ class RoundCreate(BaseModel):
     course_rating: float
     slope_rating: int
     hole_scores: List[int]
+    is_hcp_relevant: bool = True
 
     @field_validator("hole_scores")
     @classmethod
@@ -48,7 +49,7 @@ def list_rounds(
                 cur.execute(
                     """SELECT r.id, p.name, r.played_on, r.course_rating,
                               r.slope_rating, r.hole_scores, r.created_at,
-                              c.id, c.name, r.differential
+                              c.id, c.name, r.differential, r.is_hcp_relevant
                        FROM rounds r
                        JOIN players p ON p.id = r.player_id
                        LEFT JOIN courses c ON c.id = r.course_id
@@ -60,7 +61,7 @@ def list_rounds(
                 cur.execute(
                     """SELECT r.id, p.name, r.played_on, r.course_rating,
                               r.slope_rating, r.hole_scores, r.created_at,
-                              c.id, c.name, r.differential
+                              c.id, c.name, r.differential, r.is_hcp_relevant
                        FROM rounds r
                        JOIN players p ON p.id = r.player_id
                        LEFT JOIN courses c ON c.id = r.course_id
@@ -84,6 +85,7 @@ def list_rounds(
             "hole_scores": r[5], "total_score": sum(r[5]),
             "differential": diff, "created_at": r[6],
             "course_id": r[7], "course_name": r[8],
+            "is_hcp_relevant": r[10] if r[10] is not None else True,
         })
     return result
 
@@ -123,8 +125,9 @@ def create_round(body: RoundCreate, user: CurrentUser = Depends(get_current_user
         with conn.cursor() as cur:
             cur.execute(
                 """INSERT INTO rounds
-                   (player_id, course_id, played_on, course_rating, slope_rating, hole_scores, differential)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id""",
+                   (player_id, course_id, played_on, course_rating, slope_rating,
+                    hole_scores, differential, is_hcp_relevant)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
                 (
                     body.player_id,
                     body.course_id,
@@ -133,11 +136,13 @@ def create_round(body: RoundCreate, user: CurrentUser = Depends(get_current_user
                     body.slope_rating,
                     body.hole_scores,
                     diff,
+                    body.is_hcp_relevant,
                 ),
             )
             row = cur.fetchone()
 
-    return {"id": row[0], "differential": diff, "total_score": sum(body.hole_scores)}
+    return {"id": row[0], "differential": diff, "total_score": sum(body.hole_scores),
+            "is_hcp_relevant": body.is_hcp_relevant}
 
 
 # DELETE /api/rounds/{round_id} – Captain only, eigenes Team

@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr, Field
 
 from app.auth import CurrentUser, get_current_user, require_captain
-from app.auth.admin import create_user, delete_user, get_user_realm_roles, set_user_realm_role
+from app.auth.admin import add_to_team, create_user, delete_user, get_user_by_email, get_user_realm_roles, set_user_realm_role
 from app.engine.golf_engine import GolfEngine
 from app.db import get_db
 
@@ -38,7 +38,8 @@ def list_players(user: CurrentUser = Depends(get_current_user)):
     with get_db() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """SELECT id, name, email, current_rating, keycloak_user_id, created_at
+                """SELECT id, name, email, current_rating, keycloak_user_id, created_at,
+                          current_whs_index
                    FROM players WHERE team_id = %s ORDER BY name""",
                 (user.team_id,),
             )
@@ -59,6 +60,7 @@ def list_players(user: CurrentUser = Depends(get_current_user)):
             "keycloak_user_id": kc_id,
             "created_at": r[5],
             "role": role,
+            "current_whs_index": float(r[6]) if r[6] is not None else None,
         })
     return result
 
@@ -68,34 +70,49 @@ def list_players(user: CurrentUser = Depends(get_current_user)):
 def create_player(body: PlayerCreate, captain: CurrentUser = Depends(require_captain)):
     if captain.team_id is None:
         raise HTTPException(403, "Captain hat kein Team.")
-    temp_password = body.password
-    kc_user_id = create_user(
-        email=body.email,
-        name=body.name,
-        password=temp_password,
-        team_id=captain.team_id,
-        role=body.role,
-    )
+
+    # Existierenden Keycloak-User prüfen (z.B. Captain in anderem Team)
+    existing = get_user_by_email(body.email)
+    if existing:
+        kc_user_id = existing["id"]
+        add_to_team(kc_user_id, captain.team_id, body.role)
+        temp_password = None  # User hat bereits ein Passwort
+    else:
+        temp_password = body.password
+        kc_user_id = create_user(
+            email=body.email,
+            name=body.name,
+            password=temp_password,
+            team_id=captain.team_id,
+            role=body.role,
+        )
+
     try:
         with get_db() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """INSERT INTO players (team_id, keycloak_user_id, name, email)
                        VALUES (%s, %s, %s, %s)
+                       ON CONFLICT (keycloak_user_id) DO UPDATE
+                         SET name = EXCLUDED.name, email = EXCLUDED.email
                        RETURNING id, name, email, created_at""",
                     (captain.team_id, kc_user_id, body.name.strip(), body.email.lower()),
                 )
                 row = cur.fetchone()
     except Exception as e:
-        delete_user(kc_user_id)
+        if not existing:
+            delete_user(kc_user_id)
         if "unique" in str(e).lower():
             raise HTTPException(409, f"Spieler '{body.name}' oder E-Mail existiert bereits.")
         raise
-    return {
-        "id": row[0], "name": row[1], "email": row[2], "created_at": row[3],
-        "temporary_password": temp_password,
-        "message": "Passwort einmalig anzeigen und an Spieler weitergeben.",
-    }
+
+    response = {"id": row[0], "name": row[1], "email": row[2], "created_at": row[3]}
+    if temp_password:
+        response["temporary_password"] = temp_password
+        response["message"] = "Passwort einmalig anzeigen und an Spieler weitergeben."
+    else:
+        response["message"] = "Bestehender Account wurde diesem Team hinzugefügt."
+    return response
 
 
 # DELETE /api/players/{player_id} – Captain only, eigenes Team
@@ -113,8 +130,28 @@ def remove_player(player_id: int, captain: CurrentUser = Depends(require_captain
     if row is None:
         raise HTTPException(404, f"Spieler {player_id} nicht gefunden.")
     kc_id = row[0]
-    if kc_id:
-        delete_user(str(kc_id))
+    if not kc_id:
+        return
+
+    kc_id_str = str(kc_id)
+
+    # team_memberships für dieses Team entfernen
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM public.team_memberships WHERE keycloak_user_id = %s AND team_id = %s",
+                (kc_id_str, captain.team_id),
+            )
+            # Prüfen ob der User noch in anderen Teams ist
+            cur.execute(
+                "SELECT COUNT(*) FROM public.team_memberships WHERE keycloak_user_id = %s",
+                (kc_id_str,),
+            )
+            remaining = cur.fetchone()[0]
+
+    # Keycloak-Account nur löschen wenn keine anderen Teams mehr
+    if remaining == 0:
+        delete_user(kc_id_str)
 
 
 @router.patch("/{player_id}/role")
@@ -142,31 +179,39 @@ def update_player_role(
     if body.role == "player":
         if target_kc_id == captain.user_id:
             raise HTTPException(403, "Du kannst deine eigene Captain-Rolle nicht entfernen.")
+        # Sicherstellen dass mindestens ein Captain im Team bleibt
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """SELECT COUNT(*) FROM public.team_memberships
+                       WHERE team_id = %s AND role = 'captain'
+                         AND keycloak_user_id != %s""",
+                    (captain.team_id, target_kc_id),
+                )
+                remaining_captains = cur.fetchone()[0]
+        if remaining_captains == 0:
+            raise HTTPException(409, "Letzter Captain kann nicht entfernt werden.")
 
-        target_roles = get_user_realm_roles(target_kc_id)
-        if "captain" in target_roles:
-            with get_db() as conn:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        """SELECT keycloak_user_id
-                           FROM players
-                           WHERE team_id = %s
-                             AND keycloak_user_id IS NOT NULL""",
-                        (captain.team_id,),
-                    )
-                    team_ids = [str(r[0]) for r in cur.fetchall()]
-            captain_count = 0
-            for kc_user_id in team_ids:
-                try:
-                    roles = get_user_realm_roles(kc_user_id)
-                except Exception:
-                    continue
-                if "captain" in roles:
-                    captain_count += 1
-            if captain_count <= 1:
-                raise HTTPException(409, "Letzter Captain kann nicht entfernt werden.")
+    # Per-Team Rolle in team_memberships aktualisieren
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """UPDATE public.team_memberships SET role = %s
+                   WHERE keycloak_user_id = %s AND team_id = %s""",
+                (body.role, target_kc_id, captain.team_id),
+            )
 
-    set_user_realm_role(target_kc_id, body.role)
+    # Keycloak-Realm-Rolle anpassen: höchste Rolle über ALLE Teams des Users
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT role FROM public.team_memberships WHERE keycloak_user_id = %s",
+                (target_kc_id,),
+            )
+            all_roles = [r[0] for r in cur.fetchall()]
+    highest = "captain" if "captain" in all_roles else "player"
+    set_user_realm_role(target_kc_id, highest)
+
     return {"id": player_id, "role": body.role}
 
 
@@ -199,7 +244,8 @@ def _recalc_player_metrics(player_id: int) -> dict:
     with get_db() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """SELECT id, played_on, differential, hole_scores, course_rating, slope_rating
+                """SELECT id, played_on, differential, hole_scores, course_rating,
+                          slope_rating, is_hcp_relevant
                    FROM rounds
                    WHERE player_id = %s
                    ORDER BY played_on ASC""",
@@ -207,9 +253,11 @@ def _recalc_player_metrics(player_id: int) -> dict:
             )
             rows = cur.fetchall()
 
-    rounds = []
-    diffs = []
-    for round_id, played_on, differential, hole_scores, course_rating, slope_rating in rows:
+    all_rounds = []   # alle Runden → Ranking / Momentum
+    all_diffs = []
+    hcp_diffs = []    # nur HCP-relevante → WHS-Index
+
+    for round_id, played_on, differential, hole_scores, course_rating, slope_rating, is_hcp_relevant in rows:
         if differential is None and hole_scores is not None and slope_rating is not None:
             try:
                 differential = GolfEngine.calc_differential(
@@ -228,12 +276,16 @@ def _recalc_player_metrics(player_id: int) -> dict:
 
         if differential is None:
             continue
-        rounds.append({"played_on": played_on, "differential": float(differential)})
-        diffs.append(float(differential))
 
-    whs_index = GolfEngine.calc_whs_index(diffs[-20:])
-    weighted_rating = GolfEngine.calc_weighted_rating(rounds)
-    momentum_data = GolfEngine.calc_momentum(diffs[-20:])
+        d = float(differential)
+        all_rounds.append({"played_on": played_on, "differential": d})
+        all_diffs.append(d)
+        if is_hcp_relevant is not False:   # True or NULL → HCP relevant
+            hcp_diffs.append(d)
+
+    whs_index = GolfEngine.calc_whs_index(hcp_diffs[-20:])
+    weighted_rating = GolfEngine.calc_weighted_rating(all_rounds)
+    momentum_data = GolfEngine.calc_momentum(all_diffs[-20:])
     momentum_score = momentum_data["momentum"]
 
     with get_db() as conn:
