@@ -29,7 +29,7 @@ export interface LeaderboardEntry {
   id: number
   name: string
   rounds_count: number
-  weighted_rating: number | null
+  matchdays_count: number
   avg_differential: number | null
   last3_avg: number | null
   momentum: number | null

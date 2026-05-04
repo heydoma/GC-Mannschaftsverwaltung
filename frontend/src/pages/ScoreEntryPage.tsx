@@ -2,15 +2,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useForm, Controller } from 'react-hook-form'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { createRound, getCourses, getPlayers, getRounds } from '@/lib/api'
+import { createRound, getCourses, getPlayers, getRounds, transferRound } from '@/lib/api'
 import type { Course, Player, Round } from '@/lib/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { SideSheet } from '@/components/ui/side-sheet'
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { toast } from 'sonner'
 import { useAuth } from '@/lib/auth'
 import { Plus, User } from 'lucide-react'
+import { usePagination } from '@/lib/usePagination'
+import { TableToolbar } from '@/components/ui/TableToolbar'
 
 const DEFAULT_PAR = 4
 const HOLES = Array.from({ length: 18 }, (_, i) => i + 1)
@@ -28,8 +31,17 @@ const roundSchema = z.object({
 
 type RoundFormValues = z.infer<typeof roundSchema>
 
+interface PendingTransfer {
+  played_on: string
+  course_id: number | null
+  course_rating: number
+  slope_rating: number
+  hole_scores: number[]
+  is_hcp_relevant: boolean
+}
+
 export default function ScoreEntryPage() {
-  const { user, activeTeamId, isCaptain } = useAuth()
+  const { user, activeTeamId, isCaptain, teams } = useAuth()
   const [players, setPlayers] = useState<Player[]>([])
   const [rounds, setRounds] = useState<Round[]>([])
   const [courses, setCourses] = useState<Course[]>([])
@@ -41,6 +53,11 @@ export default function ScoreEntryPage() {
   const [panelCr, setPanelCr] = useState<number | null>(null)
   const [panelSlope, setPanelSlope] = useState<number | null>(null)
   const scoreInputRefs = useRef<(HTMLInputElement | null)[]>([])
+
+  // Transfer-Dialog State
+  const [pendingTransfer, setPendingTransfer] = useState<PendingTransfer | null>(null)
+  const [transferTeamIds, setTransferTeamIds] = useState<number[]>([])
+  const [transferring, setTransferring] = useState(false)
 
   const form = useForm<RoundFormValues>({
     resolver: zodResolver(roundSchema) as never,
@@ -74,12 +91,7 @@ export default function ScoreEntryPage() {
 
   useEffect(() => { loadData(); loadRounds() }, [loadData, loadRounds])
 
-  // Non-captains are locked to their own player
-  useEffect(() => {
-    if (!user || isCaptain) return
-    const own = players.find((p) => p.keycloak_user_id === user.id)
-    if (own) setFilterPlayerId(String(own.id))
-  }, [players, user, isCaptain])
+
 
   const courseOptions = useMemo(
     () => courses.map((c) => ({ id: c.id, name: c.name, hole_pars: c.hole_pars, course_rating: c.course_rating, slope_rating: c.slope_rating })),
@@ -124,8 +136,12 @@ export default function ScoreEntryPage() {
     setPanelCr(null)
     setPanelSlope(null)
     setIsHcpRelevant(true)
+    // Non-Captains: eigener Spieler vorausgewählt; Captains: kein Default
+    const defaultPlayerId = !isCaptain
+      ? String(players.find((p) => p.keycloak_user_id === user?.id)?.id ?? '')
+      : ''
     reset({
-      playerId: filterPlayerId,
+      playerId: defaultPlayerId,
       courseName: '',
       courseId: null,
       date: new Date().toISOString().slice(0, 10),
@@ -151,8 +167,41 @@ export default function ScoreEntryPage() {
       toast.success('Runde gespeichert! ⛳')
       setPanelOpen(false)
       loadRounds()
+
+      // Transfer-Dialog: nur wenn Spieler für sich selbst einträgt UND in mehreren Teams ist
+      const selectedPlayer = players.find((p) => String(p.id) === raw.playerId)
+      const isOwnRound = selectedPlayer?.keycloak_user_id === user?.id
+      const otherTeams = teams.filter((t) => t.team_id !== activeTeamId)
+      if (isOwnRound && otherTeams.length > 0) {
+        setTransferTeamIds(otherTeams.map((t) => t.team_id))
+        setPendingTransfer({
+          played_on: raw.date,
+          course_id: raw.courseId ?? null,
+          course_rating: panelCr,
+          slope_rating: panelSlope,
+          hole_scores: raw.scores.map(Number),
+          is_hcp_relevant: isHcpRelevant,
+        })
+      }
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : 'Fehler beim Speichern')
+    }
+  }
+
+  const handleTransfer = async () => {
+    if (!pendingTransfer || transferTeamIds.length === 0) return
+    setTransferring(true)
+    try {
+      const result = await transferRound({ target_team_ids: transferTeamIds, ...pendingTransfer })
+      const successes = result.results.filter((r) => r.success).length
+      const failures = result.results.filter((r) => !r.success)
+      if (successes > 0) toast.success(`Runde in ${successes} weitere${successes === 1 ? ' Mannschaft' : ' Mannschaften'} übertragen ✅`)
+      if (failures.length > 0) toast.error(`Fehler in ${failures.length} Mannschaft(en): ${failures.map((f) => f.error).join(', ')}`)
+      setPendingTransfer(null)
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'Fehler beim Übertragen')
+    } finally {
+      setTransferring(false)
     }
   }
 
@@ -173,9 +222,10 @@ export default function ScoreEntryPage() {
     })
   }, [rounds, filterPlayerId, players])
 
-  const sidebarPlayers = isCaptain
-    ? players
-    : players.filter((p) => p.keycloak_user_id === user?.id)
+  const roundsPagination = usePagination(visibleRounds, 25)
+
+  // Alle Spieler in der Sidebar – jeder kann alle Runden sehen und filtern
+  const sidebarPlayers = players
 
   return (
     <div className="flex h-full min-h-[600px] flex-col sm:flex-row">
@@ -207,9 +257,9 @@ export default function ScoreEntryPage() {
       </aside>
 
       {/* ── Main Content ─────────────────────────── */}
-      <div className="flex-1 overflow-hidden p-5 sm:p-6 space-y-5">
+      <div className="flex-1 flex flex-col overflow-hidden p-5 sm:p-6 gap-5">
         {/* Header */}
-        <div className="flex items-start justify-between gap-4">
+        <div className="shrink-0 flex items-start justify-between gap-4">
           <div className="space-y-1">
             <p className="page-kicker">Score Tracking</p>
             <h2 className="page-title text-2xl font-semibold sm:text-3xl">Runden-Historie</h2>
@@ -221,44 +271,60 @@ export default function ScoreEntryPage() {
           </Button>
         </div>
 
-        {/* Rounds table */}
-        <div className="overflow-x-auto rounded-2xl border bg-background/70">
+        {/* Rounds table – nimmt den restlichen Platz und scrollt vertikal */}
+        <div className="flex-1 min-h-0 flex flex-col rounded-2xl border bg-background/70 overflow-hidden">
           {loadingRounds ? (
             <p className="p-6 text-sm text-muted-foreground">Lade Runden…</p>
           ) : visibleRounds.length === 0 ? (
             <p className="p-6 text-sm text-muted-foreground">Keine Runden vorhanden.</p>
           ) : (
-            <table className="w-full text-sm">
-              <thead className="bg-muted/50 text-muted-foreground">
-                <tr>
-                  <th className="p-3 text-left">Spieler</th>
-                  <th className="p-3 text-left">Datum</th>
-                  <th className="p-3 text-left hidden sm:table-cell">Platz</th>
-                  <th className="p-3 text-right">Score</th>
-                  <th className="p-3 text-right">Differential</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visibleRounds.map((r) => (
-                  <tr key={r.id} className="border-t transition-colors hover:bg-muted/30">
-                    <td className="p-3 font-medium">{r.player_name}</td>
-                    <td className="p-3 text-muted-foreground">{r.played_on}</td>
-                    <td className="p-3 text-muted-foreground hidden sm:table-cell">{r.course_name ?? '—'}</td>
-                    <td className="p-3 text-right font-mono font-semibold">{r.total_score}</td>
-                    <td className="p-3 text-right font-mono">
-                      {r.differential != null ? (
-                        <span
-                          className={r.is_hcp_relevant ? '' : 'line-through text-muted-foreground'}
-                          title={r.is_hcp_relevant ? 'HCP-relevant' : 'Nur internes Ranking'}
-                        >
-                          {r.differential.toFixed(1)}
-                        </span>
-                      ) : '—'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <>
+              <div className="flex-1 min-h-0 overflow-y-auto overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 z-10 bg-muted/50 text-muted-foreground">
+                    <tr>
+                      <th className="p-3 text-left">Spieler</th>
+                      <th className="p-3 text-left">Datum</th>
+                      <th className="p-3 text-left hidden sm:table-cell">Platz</th>
+                      <th className="p-3 text-right">Score</th>
+                      <th className="p-3 text-right">Differential</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {roundsPagination.pageItems.map((r) => (
+                      <tr key={r.id} className="border-t transition-colors hover:bg-muted/30">
+                        <td className="p-3 font-medium">{r.player_name}</td>
+                        <td className="p-3 text-muted-foreground">{r.played_on}</td>
+                        <td className="p-3 text-muted-foreground hidden sm:table-cell">{r.course_name ?? '—'}</td>
+                        <td className="p-3 text-right font-mono font-semibold">{r.total_score}</td>
+                        <td className="p-3 text-right">
+                          {r.differential != null ? (
+                            <span className="inline-flex flex-col items-end gap-0.5">
+                              <span className={`font-mono ${r.is_hcp_relevant ? '' : 'line-through text-muted-foreground'}`}>
+                                {r.differential.toFixed(1)}
+                              </span>
+                              {!r.is_hcp_relevant && (
+                                <span className="text-[10px] leading-none text-muted-foreground bg-muted rounded px-1 py-0.5">
+                                  nur Ranking
+                                </span>
+                              )}
+                            </span>
+                          ) : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <TableToolbar
+                page={roundsPagination.page}
+                pageSize={roundsPagination.pageSize}
+                totalItems={roundsPagination.totalItems}
+                totalPages={roundsPagination.totalPages}
+                onPageChange={roundsPagination.setPage}
+                onPageSizeChange={roundsPagination.setPageSize}
+              />
+            </>
           )}
         </div>
       </div>
@@ -447,6 +513,64 @@ export default function ScoreEntryPage() {
           </div>
         </form>
       </SideSheet>
+
+      {/* ── Transfer-Dialog ──────────────────────── */}
+      <Dialog open={pendingTransfer !== null} onOpenChange={(open) => { if (!open) setPendingTransfer(null) }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Runde übertragen?</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Du bist in mehreren Mannschaften. Soll diese Runde auch dort eingetragen werden?
+            </p>
+            <ul className="space-y-2">
+              {teams
+                .filter((t) => t.team_id !== activeTeamId)
+                .map((t) => {
+                  const checked = transferTeamIds.includes(t.team_id)
+                  return (
+                    <li key={t.team_id}>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setTransferTeamIds((prev) =>
+                            prev.includes(t.team_id) ? prev.filter((id) => id !== t.team_id) : [...prev, t.team_id],
+                          )
+                        }
+                        className={`flex w-full items-center gap-3 rounded-xl border px-4 py-3 text-left transition-colors
+                          ${checked ? 'border-primary bg-primary/5' : 'hover:bg-muted/60'}`}
+                      >
+                        <span
+                          className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border-2 text-xs font-bold transition-colors
+                            ${checked ? 'border-primary bg-primary text-primary-foreground' : 'border-muted-foreground'}`}
+                        >
+                          {checked && '✓'}
+                        </span>
+                        <div>
+                          <p className="text-sm font-medium">{t.team_name}</p>
+                          <p className="text-xs capitalize text-muted-foreground">
+                            {t.role === 'captain' ? '⚑ Captain' : t.role === 'admin' ? '🛡 Admin' : '🏌️ Spieler'}
+                          </p>
+                        </div>
+                      </button>
+                    </li>
+                  )
+                })}
+            </ul>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setPendingTransfer(null)}>
+              Überspringen
+            </Button>
+            <Button onClick={handleTransfer} disabled={transferring || transferTeamIds.length === 0}>
+              {transferring
+                ? 'Übertrage…'
+                : `In ${transferTeamIds.length} Mannschaft${transferTeamIds.length === 1 ? '' : 'en'} übertragen`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

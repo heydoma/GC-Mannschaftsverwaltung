@@ -15,7 +15,7 @@ router = APIRouter(prefix="/api/players", tags=["players"])
 class PlayerCreate(BaseModel):
     name: str = Field(..., min_length=2, max_length=100)
     email: EmailStr
-    password: str = Field(..., min_length=8, max_length=100)
+    password: Optional[str] = Field(None, min_length=8, max_length=100)
     role: str = Field("player", pattern="^(player|captain)$")
 
 
@@ -28,6 +28,14 @@ class PlayerAnalyzeResult(BaseModel):
     current_whs_index: Optional[float]
     weighted_rating: Optional[float]
     momentum_score: Optional[float]
+
+
+# GET /api/players/check-email – prüft ob Email bereits in Keycloak existiert
+@router.get("/check-email")
+def check_email(email: str, captain: CurrentUser = Depends(require_captain)):
+    """Gibt {exists: true/false} zurück – kein Passwort nötig wenn exists=true."""
+    existing = get_user_by_email(email)
+    return {"exists": existing is not None}
 
 
 # GET /api/players – alle Spieler des eigenen Teams
@@ -71,14 +79,15 @@ def create_player(body: PlayerCreate, captain: CurrentUser = Depends(require_cap
     if captain.team_id is None:
         raise HTTPException(403, "Captain hat kein Team.")
 
-    # Existierenden Keycloak-User prüfen (z.B. Captain in anderem Team)
+    # Existierenden Keycloak-User prüfen (z.B. Spieler bereits in anderem Team)
     existing = get_user_by_email(body.email)
     if existing:
         kc_user_id = existing["id"]
         add_to_team(kc_user_id, captain.team_id, body.role)
         temp_password = None  # User hat bereits ein Passwort
     else:
-        temp_password = body.password
+        # Neuer User: Passwort aus Request oder zufällig generieren
+        temp_password = body.password or secrets.token_urlsafe(12)
         kc_user_id = create_user(
             email=body.email,
             name=body.name,
@@ -240,12 +249,18 @@ def analyze_player(
     }
 
 
-def _recalc_player_metrics(player_id: int) -> dict:
-    with get_db() as conn:
+def _recalc_player_metrics(player_id: int, schema_name: Optional[str] = None) -> dict:
+    """Berechnet WHS-Index, Weighted Rating und Momentum für einen Spieler neu.
+
+    schema_name: Falls gesetzt (z.B. 'tenant_2'), werden alle Queries direkt in diesem
+    Schema ausgeführt. Damit können Cross-Team Transfers Metriken im Ziel-Schema
+    aktualisieren, ohne den aktiven TenantContext zu ändern.
+    """
+    with get_db(schema_override=schema_name) as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """SELECT id, played_on, differential, hole_scores, course_rating,
-                          slope_rating, is_hcp_relevant
+                          slope_rating, is_hcp_relevant, form_differential
                    FROM rounds
                    WHERE player_id = %s
                    ORDER BY played_on ASC""",
@@ -253,11 +268,12 @@ def _recalc_player_metrics(player_id: int) -> dict:
             )
             rows = cur.fetchall()
 
-    all_rounds = []   # alle Runden → Ranking / Momentum
-    all_diffs = []
+    all_rounds = []   # alle Runden → Ranking / Weighted Rating
+    all_diffs = []    # HCP-Differentials für Fallback-Momentum
     hcp_diffs = []    # nur HCP-relevante → WHS-Index
+    form_diffs = []   # Form-Differentials (par-aware, Ausreißer bereinigt)
 
-    for round_id, played_on, differential, hole_scores, course_rating, slope_rating, is_hcp_relevant in rows:
+    for round_id, played_on, differential, hole_scores, course_rating, slope_rating, is_hcp_relevant, form_differential in rows:
         if differential is None and hole_scores is not None and slope_rating is not None:
             try:
                 differential = GolfEngine.calc_differential(
@@ -265,7 +281,7 @@ def _recalc_player_metrics(player_id: int) -> dict:
                     float(course_rating),
                     slope_rating,
                 )
-                with get_db() as conn:
+                with get_db(schema_override=schema_name) as conn:
                     with conn.cursor() as cur:
                         cur.execute(
                             "UPDATE rounds SET differential = %s WHERE id = %s",
@@ -278,17 +294,23 @@ def _recalc_player_metrics(player_id: int) -> dict:
             continue
 
         d = float(differential)
-        all_rounds.append({"played_on": played_on, "differential": d})
+        fd = float(form_differential) if form_differential is not None else None
+        all_rounds.append({"played_on": played_on, "differential": d, "form_differential": fd})
         all_diffs.append(d)
         if is_hcp_relevant is not False:   # True or NULL → HCP relevant
             hcp_diffs.append(d)
+        if form_differential is not None:
+            form_diffs.append(float(form_differential))
 
+    # Momentum: form_diffs verwenden wenn ≥3 Runden mit Par-Daten vorliegen,
+    # sonst Fallback auf HCP-Differentials (rückwärtskompatibel)
+    momentum_source = form_diffs[-20:] if len(form_diffs) >= 3 else all_diffs[-20:]
     whs_index = GolfEngine.calc_whs_index(hcp_diffs[-20:])
-    weighted_rating = GolfEngine.calc_weighted_rating(all_rounds)
-    momentum_data = GolfEngine.calc_momentum(all_diffs[-20:])
+    weighted_rating = GolfEngine.calc_form_rating(all_rounds)
+    momentum_data = GolfEngine.calc_momentum(momentum_source)
     momentum_score = momentum_data["momentum"]
 
-    with get_db() as conn:
+    with get_db(schema_override=schema_name) as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """UPDATE players

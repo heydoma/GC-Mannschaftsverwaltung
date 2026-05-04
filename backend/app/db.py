@@ -26,12 +26,29 @@ def _get_pool() -> psycopg2_pool.ThreadedConnectionPool:
 
 
 @contextmanager
-def get_db():
-    """Context manager: holt eine Connection aus dem Pool, committed oder rollbacked automatisch."""
+def get_db(schema_override: Optional[str] = None):
+    """Context manager: holt eine Connection aus dem Pool, committed oder rollbacked automatisch.
+
+    schema_override: Falls gesetzt, wird dieser Schema-Name statt des Tenant-Schemas verwendet.
+    Damit können cross-team Operationen (z.B. Runden-Transfer) direkt in ein anderes
+    Tenant-Schema schreiben, ohne den globalen TenantContext zu ändern.
+    """
     conn = _get_pool().getconn()
     try:
         tenant = get_tenant_context()
-        if tenant is not None:
+
+        if schema_override is not None:
+            # Cross-team Betrieb: schema_override hat Vorrang
+            team_id_str = schema_override.split("_", 1)[-1]  # "tenant_2" → "2"
+            with conn.cursor() as cur:
+                cur.execute(
+                    sql.SQL("SET LOCAL search_path TO {}, public").format(
+                        sql.Identifier(schema_override)
+                    )
+                )
+                cur.execute("SELECT set_config('app.tenant_id', %s, true)", (team_id_str,))
+                cur.execute("SELECT set_config('app.tenant_schema', %s, true)", (schema_override,))
+        elif tenant is not None:
             with conn.cursor() as cur:
                 cur.execute(
                     sql.SQL("SET LOCAL search_path TO {}, public").format(

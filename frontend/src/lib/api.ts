@@ -37,7 +37,10 @@ export interface PlayerCreateResult extends Player {
   message?: string
 }
 
-export const createPlayer = (name: string, email: string, password: string, role: 'player' | 'captain') =>
+export const checkPlayerEmail = (email: string) =>
+  request<{ exists: boolean }>(`/players/check-email?email=${encodeURIComponent(email)}`)
+
+export const createPlayer = (name: string, email: string, password: string | null, role: 'player' | 'captain') =>
   request<PlayerCreateResult>('/players', {
     method: 'POST',
     body: JSON.stringify({ name, email, password, role }),
@@ -70,6 +73,26 @@ export const createRound = (data: RoundCreate) =>
 
 export const deleteRound = (id: number) =>
   request<void>(`/rounds/${id}`, { method: 'DELETE' })
+
+export interface RoundTransferPayload {
+  target_team_ids: number[]
+  played_on: string
+  course_id?: number | null
+  course_rating: number
+  slope_rating: number
+  hole_scores: number[]
+  is_hcp_relevant: boolean
+}
+
+export interface RoundTransferResult {
+  results: Array<{ team_id: number; success: boolean; round_id?: number; error?: string }>
+}
+
+export const transferRound = (data: RoundTransferPayload) =>
+  request<RoundTransferResult>('/rounds/transfer', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
 
 // ── Leaderboard ─────────────────────────────────────────────────────
 export const getLeaderboard = () => request<LeaderboardEntry[]>('/leaderboard')

@@ -174,24 +174,36 @@ def ensure_tenant_schema(
                 sql.SQL(
                     """
                     CREATE TABLE IF NOT EXISTS {}.rounds (
-                        id              SERIAL PRIMARY KEY,
-                        player_id       INTEGER NOT NULL REFERENCES {}.players(id) ON DELETE CASCADE,
-                        course_id       INTEGER REFERENCES public.courses(id) ON DELETE SET NULL,
-                        played_on       DATE NOT NULL,
-                        course_rating   NUMERIC(4, 1) NOT NULL,
-                        slope_rating    INTEGER NOT NULL CHECK (slope_rating BETWEEN 55 AND 155),
-                        hole_scores     INTEGER[] NOT NULL CHECK (array_length(hole_scores, 1) = 18),
-                        differential    NUMERIC(6, 1),
-                        is_hcp_relevant BOOLEAN NOT NULL DEFAULT true,
-                        created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+                        id                SERIAL PRIMARY KEY,
+                        player_id         INTEGER NOT NULL REFERENCES {}.players(id) ON DELETE CASCADE,
+                        course_id         INTEGER REFERENCES public.courses(id) ON DELETE SET NULL,
+                        played_on         DATE NOT NULL,
+                        course_rating     NUMERIC(4, 1) NOT NULL,
+                        slope_rating      INTEGER NOT NULL CHECK (slope_rating BETWEEN 55 AND 155),
+                        hole_scores       INTEGER[] NOT NULL CHECK (array_length(hole_scores, 1) = 18),
+                        hole_pars         INTEGER[],
+                        differential      NUMERIC(6, 1),
+                        form_differential NUMERIC(5, 2),
+                        is_hcp_relevant   BOOLEAN NOT NULL DEFAULT true,
+                        created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
                     )
                     """
                 ).format(sql.Identifier(schema_name), sql.Identifier(schema_name))
             )
-            # Migration: is_hcp_relevant nachrüsten falls Tabelle aus älterer Version stammt
+            # Migrations: Spalten nachrüsten falls Tabelle aus älterer Version stammt
             cur.execute(
                 sql.SQL(
                     "ALTER TABLE {}.rounds ADD COLUMN IF NOT EXISTS is_hcp_relevant BOOLEAN NOT NULL DEFAULT true"
+                ).format(sql.Identifier(schema_name))
+            )
+            cur.execute(
+                sql.SQL(
+                    "ALTER TABLE {}.rounds ADD COLUMN IF NOT EXISTS hole_pars INTEGER[]"
+                ).format(sql.Identifier(schema_name))
+            )
+            cur.execute(
+                sql.SQL(
+                    "ALTER TABLE {}.rounds ADD COLUMN IF NOT EXISTS form_differential NUMERIC(5, 2)"
                 ).format(sql.Identifier(schema_name))
             )
             cur.execute(

@@ -42,11 +42,13 @@ Das aktive Team wird in `localStorage` gespeichert und beim nächsten Login wied
 
 ## Leaderboard (DashboardPage)
 
-Spalten: `#` · Form-Icon (🔥 heiß / ❄️ kalt / → neutral) · Name · HCP · Weighted Rating
+Spalten: `#` · Form-Icon (🔥 heiß / ❄️ kalt / → neutral) · Name · HCP · Runden · Spieltage
 
 - **Form-Icon** basiert auf den letzten 3 Runden vs. langfristiger Durchschnitt
 - **HCP** = WHS-Index (mind. 3 Runden, sonst `—`)
-- **Weighted Rating** = interner Score, bestimmt die Reihenfolge
+- **Runden** = Anzahl eingetragener Runden gesamt
+- **Spieltage** = Anzahl Spieltage an denen der Spieler nominiert war (Starter oder Reserve)
+- Sortierung intern über Form-Rating (par-aware, zeitfenster-basiert, mit Aktivitätsbonus)
 
 ## Spieltage (LineupPage)
 

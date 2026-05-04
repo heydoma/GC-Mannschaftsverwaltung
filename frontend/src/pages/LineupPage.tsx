@@ -275,7 +275,7 @@ export default function LineupPage() {
       </div>
 
       {/* Spieltag-Auswahl + neuen anlegen */}
-      <div className="flex flex-wrap gap-2 items-end">
+      <div className="flex flex-wrap gap-2 items-center">
         <div className="relative flex-1 min-w-[180px]">
           <select
             value={selectedId ?? ''}
@@ -298,7 +298,7 @@ export default function LineupPage() {
           onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
           className="h-9 w-44 text-sm"
         />
-        <Button size="sm" onClick={handleCreate} disabled={creating || !newLabel.trim()}>
+        <Button className="h-9" onClick={handleCreate} disabled={creating || !newLabel.trim()}>
           <Plus className="h-4 w-4 mr-1" /> Anlegen
         </Button>
       </div>

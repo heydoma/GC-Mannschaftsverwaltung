@@ -1,4 +1,19 @@
 services:
+  backend:
+    build: ./backend
+    container_name: golf_backend
+    restart: unless-stopped
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-golf}:${POSTGRES_PASSWORD:-golf_dev_pw}@postgres:5432/${POSTGRES_DB:-golf_team}
+      KEYCLOAK_URL: http://keycloak:8080
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   postgres:
     image: postgres:15-alpine
     container_name: golf_postgres

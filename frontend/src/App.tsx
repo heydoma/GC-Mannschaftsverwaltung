@@ -55,7 +55,9 @@ function TeamPicker() {
             >
               <div className="flex-1">
                 <p className="font-semibold">{t.team_name}</p>
-                <p className="text-xs text-muted-foreground capitalize">{t.role === 'captain' ? '⚑ Captain' : '🏌️ Spieler'}</p>
+                <p className="text-xs text-muted-foreground capitalize">
+                  {t.role === 'captain' ? '⚑ Captain' : t.role === 'admin' ? '🛡 Admin' : '🏌️ Spieler'}
+                </p>
               </div>
               <span className="text-muted-foreground">→</span>
             </button>
@@ -99,7 +101,7 @@ function Shell() {
     () => [
       { id: 'dashboard', label: 'Leaderboard', icon: '🏆', path: '/dashboard' },
       { id: 'score', label: 'Score', icon: '⛳', path: '/score' },
-      { id: 'lineup', label: 'Aufstellung', icon: '🏌️', path: '/lineup', requires: 'captain' },
+      { id: 'lineup', label: 'Aufstellung', icon: '🏌️', path: '/lineup' },
       { id: 'admin', label: 'Verwaltung', icon: '⚙️', path: '/admin', requires: 'captain' },
       { id: 'system', label: 'System', icon: '🧭', path: '/system', requires: 'admin' },
     ],
@@ -170,7 +172,9 @@ function Shell() {
                 className="w-full rounded-lg border bg-background px-2 py-1.5 text-xs font-medium text-foreground"
               >
                 {teams.map((t) => (
-                  <option key={t.team_id} value={t.team_id}>{t.team_name}</option>
+                  <option key={t.team_id} value={t.team_id}>
+                    {t.team_name}{t.role === 'captain' ? ' (Captain)' : t.role === 'admin' ? ' (Admin)' : ' (Spieler)'}
+                  </option>
                 ))}
               </select>
             </div>
@@ -186,9 +190,9 @@ function Shell() {
       </aside>
 
       {/* ── Main area (offset on desktop) ─────────────────────── */}
-      <div className="md:pl-52 flex min-h-screen flex-col">
+      <div className="md:pl-52 flex h-screen flex-col overflow-hidden">
         {/* Mobile header */}
-        <header className="md:hidden pt-4 px-4 sm:pt-6 sm:px-6">
+        <header className="md:hidden shrink-0 pt-4 px-4 sm:pt-6 sm:px-6">
           <div className="flex items-center justify-between gap-3 rounded-2xl border bg-background/80 px-5 py-3 shadow-sm backdrop-blur">
             <div className="flex items-center gap-3 min-w-0">
               <span className="text-xl">⛳</span>
@@ -215,8 +219,8 @@ function Shell() {
           </div>
         </header>
 
-        <main className="flex-1 px-4 pt-6 pb-28 md:pb-6 md:px-6">
-          <div className="rounded-3xl border bg-background/80 shadow-sm backdrop-blur">
+        <main className="flex-1 min-h-0 px-4 pt-6 pb-28 md:pb-6 md:px-6">
+          <div className="h-full rounded-3xl border bg-background/80 shadow-sm backdrop-blur overflow-y-auto">
             <Outlet />
           </div>
         </main>
@@ -292,8 +296,8 @@ export default function App() {
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/score" element={<ScoreEntryPage />} />
+          <Route path="/lineup" element={<LineupPage />} />
           <Route element={<RequireCaptain />}>
-            <Route path="/lineup" element={<LineupPage />} />
             <Route path="/admin" element={<AdminPage />} />
           </Route>
           <Route element={<RequireAdmin />}>

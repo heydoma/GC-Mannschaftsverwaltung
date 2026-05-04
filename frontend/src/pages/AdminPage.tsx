@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { getPlayers, createPlayer, deletePlayer, getRounds, deleteRound, updatePlayerRole, analyzePlayer } from '@/lib/api'
+import { getPlayers, createPlayer, checkPlayerEmail, deletePlayer, getRounds, deleteRound, updatePlayerRole } from '@/lib/api'
 import type { Player, Round } from '@/lib/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -8,7 +8,9 @@ import { SideSheet } from '@/components/ui/side-sheet'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
 import { useAuth } from '@/lib/auth'
-import { Plus, Trash2, BarChart2, ChevronDown, Save } from 'lucide-react'
+import { Plus, Trash2, ChevronDown, Save } from 'lucide-react'
+import { usePagination } from '@/lib/usePagination'
+import { TableToolbar } from '@/components/ui/TableToolbar'
 
 const SETTINGS_KEY = 'lineup-settings'
 const SETTINGS_DEFAULTS = { starterCount: 4, reserveCount: 2 }
@@ -31,6 +33,7 @@ export default function AdminPage() {
   const [newEmail, setNewEmail] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [newRole, setNewRole] = useState<'player' | 'captain'>('player')
+  const [emailStatus, setEmailStatus] = useState<'idle' | 'checking' | 'new' | 'existing'>('idle')
   const [roleDrafts, setRoleDrafts] = useState<Record<number, 'player' | 'captain'>>({})
   const [adding, setAdding] = useState(false)
   const [tempPw, setTempPw] = useState<{ name: string; pw: string } | null>(null)
@@ -38,6 +41,9 @@ export default function AdminPage() {
   // Match-Einstellungen
   const [starterDraft, setStarterDraft] = useState(SETTINGS_DEFAULTS.starterCount)
   const [reserveDraft, setReserveDraft] = useState(SETTINGS_DEFAULTS.reserveCount)
+
+  const playersPagination = usePagination(players, 25)
+  const roundsPagination = usePagination(rounds, 25)
 
 
   const loadAll = useCallback(() => {
@@ -75,20 +81,35 @@ export default function AdminPage() {
 
   const fullName = `${firstName.trim()} ${lastName.trim()}`.trim()
 
+  const handleEmailBlur = async () => {
+    const email = newEmail.trim()
+    if (!email || !email.includes('@')) return
+    setEmailStatus('checking')
+    try {
+      const { exists } = await checkPlayerEmail(email)
+      setEmailStatus(exists ? 'existing' : 'new')
+    } catch {
+      setEmailStatus('idle')
+    }
+  }
+
   const handleAddPlayer = async () => {
-    if (!fullName || !newEmail.trim() || !newPassword.trim()) return
+    const needsPassword = emailStatus === 'new' && !newPassword.trim()
+    if (!fullName || !newEmail.trim() || needsPassword) return
     setAdding(true)
     try {
-      const result = await createPlayer(fullName, newEmail.trim(), newPassword.trim(), newRole)
+      const pw = emailStatus === 'existing' ? null : newPassword.trim() || null
+      const result = await createPlayer(fullName, newEmail.trim(), pw, newRole)
       if (result.temporary_password) {
         setTempPw({ name: result.name, pw: result.temporary_password })
       }
-      toast.success(`Spieler "${fullName}" angelegt.`)
+      toast.success(`Spieler "${fullName}" ${emailStatus === 'existing' ? 'hinzugefügt.' : 'angelegt.'}`)
       setFirstName('')
       setLastName('')
       setNewEmail('')
       setNewPassword('')
       setNewRole('player')
+      setEmailStatus('idle')
       setPanelOpen(false)
       loadAll()
     } catch (e: unknown) {
@@ -132,15 +153,6 @@ export default function AdminPage() {
     }
   }
 
-  const handleAnalyze = async (p: Player) => {
-    try {
-      await analyzePlayer(p.id)
-      toast.success(`Analyse aktualisiert: ${p.name}`)
-      loadAll()
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : 'Fehler')
-    }
-  }
 
   const captainCount = players.filter((p) => p.role === 'captain').length
 
@@ -176,9 +188,10 @@ export default function AdminPage() {
       )}
 
       {/* Players table */}
-      <div className="overflow-x-auto rounded-2xl border bg-background/70">
+      <div className="rounded-2xl border bg-background/70 flex flex-col overflow-hidden max-h-[50vh]">
+        <div className="flex-1 min-h-0 overflow-x-auto overflow-y-auto">
         <table className="w-full text-sm">
-          <thead className="bg-muted/50 text-muted-foreground">
+          <thead className="sticky top-0 z-10 bg-muted/50 text-muted-foreground">
             <tr>
               <th className="p-3 text-left">Name</th>
               <th className="p-3 text-left hidden sm:table-cell">E-Mail</th>
@@ -189,7 +202,7 @@ export default function AdminPage() {
             </tr>
           </thead>
           <tbody>
-            {players.map((p) => {
+            {playersPagination.pageItems.map((p) => {
               const selectedRole = roleDrafts[p.id] ?? p.role ?? 'player'
               const isSelf = p.keycloak_user_id === user?.id
               const isLastCaptain = p.role === 'captain' && captainCount <= 1
@@ -224,9 +237,6 @@ export default function AdminPage() {
                   </td>
                   <td className="p-3">
                     <div className="flex items-center justify-end gap-1">
-                      <Button size="icon" variant="ghost" title="Analyse" onClick={() => handleAnalyze(p)}>
-                        <BarChart2 className="h-4 w-4" />
-                      </Button>
                       <Button size="icon" variant="ghost" className="text-destructive hover:text-destructive" title="Löschen" onClick={() => handleDeletePlayer(p)}>
                         <Trash2 className="h-4 w-4" />
                       </Button>
@@ -237,6 +247,15 @@ export default function AdminPage() {
             })}
           </tbody>
         </table>
+        </div>
+        <TableToolbar
+          page={playersPagination.page}
+          pageSize={playersPagination.pageSize}
+          totalItems={playersPagination.totalItems}
+          totalPages={playersPagination.totalPages}
+          onPageChange={playersPagination.setPage}
+          onPageSizeChange={playersPagination.setPageSize}
+        />
       </div>
 
       {/* Match-Einstellungen */}
@@ -316,44 +335,54 @@ export default function AdminPage() {
           <ChevronDown className={`h-4 w-4 transition-transform ${showRounds ? 'rotate-180' : ''}`} />
         </button>
         {showRounds && (
-          <div className="overflow-x-auto border-t">
-            <table className="w-full text-sm">
-              <thead className="bg-muted/50 text-muted-foreground">
-                <tr>
-                  <th className="p-3 text-left">Spieler</th>
-                  <th className="p-3 text-left">Datum</th>
-                  <th className="p-3 text-left hidden sm:table-cell">Platz</th>
-                  <th className="p-3 text-right">Total</th>
-                  <th className="p-3 text-right">Differential</th>
-                  <th className="p-3" />
-                </tr>
-              </thead>
-              <tbody>
-                {rounds.map((r) => (
-                  <tr key={r.id} className="border-t hover:bg-muted/20">
-                    <td className="p-3">{r.player_name}</td>
-                    <td className="p-3 text-muted-foreground">{r.played_on}</td>
-                    <td className="p-3 text-muted-foreground hidden sm:table-cell">{r.course_name ?? '—'}</td>
-                    <td className="p-3 text-right font-mono font-semibold">{r.total_score}</td>
-                    <td className="p-3 text-right font-mono">
-                      {r.differential != null ? (
-                        <span
-                          className={r.is_hcp_relevant ? '' : 'line-through text-muted-foreground'}
-                          title={r.is_hcp_relevant ? 'HCP-relevant' : 'Nur internes Ranking'}
-                        >
-                          {r.differential.toFixed(1)}
-                        </span>
-                      ) : '—'}
-                    </td>
-                    <td className="p-3 text-right">
-                      <Button size="icon" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => handleDeleteRound(r)}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </td>
+          <div className="flex flex-col max-h-[45vh] border-t overflow-hidden">
+            <div className="flex-1 min-h-0 overflow-x-auto overflow-y-auto">
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 z-10 bg-muted/50 text-muted-foreground">
+                  <tr>
+                    <th className="p-3 text-left">Spieler</th>
+                    <th className="p-3 text-left">Datum</th>
+                    <th className="p-3 text-left hidden sm:table-cell">Platz</th>
+                    <th className="p-3 text-right">Total</th>
+                    <th className="p-3 text-right">Differential</th>
+                    <th className="p-3" />
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {roundsPagination.pageItems.map((r) => (
+                    <tr key={r.id} className="border-t hover:bg-muted/20">
+                      <td className="p-3">{r.player_name}</td>
+                      <td className="p-3 text-muted-foreground">{r.played_on}</td>
+                      <td className="p-3 text-muted-foreground hidden sm:table-cell">{r.course_name ?? '—'}</td>
+                      <td className="p-3 text-right font-mono font-semibold">{r.total_score}</td>
+                      <td className="p-3 text-right font-mono">
+                        {r.differential != null ? (
+                          <span
+                            className={r.is_hcp_relevant ? '' : 'line-through text-muted-foreground'}
+                            title={r.is_hcp_relevant ? 'HCP-relevant' : 'Nur internes Ranking'}
+                          >
+                            {r.differential.toFixed(1)}
+                          </span>
+                        ) : '—'}
+                      </td>
+                      <td className="p-3 text-right">
+                        <Button size="icon" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => handleDeleteRound(r)}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <TableToolbar
+              page={roundsPagination.page}
+              pageSize={roundsPagination.pageSize}
+              totalItems={roundsPagination.totalItems}
+              totalPages={roundsPagination.totalPages}
+              onPageChange={roundsPagination.setPage}
+              onPageSizeChange={roundsPagination.setPageSize}
+            />
           </div>
         )}
       </div>
@@ -361,14 +390,24 @@ export default function AdminPage() {
       {/* Add Player Side-Sheet */}
       <SideSheet
         open={panelOpen}
-        onClose={() => setPanelOpen(false)}
+        onClose={() => { setPanelOpen(false); setEmailStatus('idle'); setNewEmail(''); setNewPassword(''); setFirstName(''); setLastName('') }}
         title="Spieler einladen"
         desktopWidth="40%"
         footer={
           <div className="flex gap-3 justify-end">
             <Button variant="outline" onClick={() => setPanelOpen(false)}>Abbrechen</Button>
-            <Button onClick={handleAddPlayer} disabled={adding || !fullName || !newEmail || !newPassword}>
-              {adding ? 'Anlegen…' : 'Spieler anlegen'}
+            <Button
+              onClick={handleAddPlayer}
+              disabled={
+                adding ||
+                !fullName ||
+                !newEmail ||
+                emailStatus === 'idle' ||
+                emailStatus === 'checking' ||
+                (emailStatus === 'new' && !newPassword)
+              }
+            >
+              {adding ? 'Anlegen…' : emailStatus === 'existing' ? 'Zum Team hinzufügen' : 'Spieler anlegen'}
             </Button>
           </div>
         }
@@ -386,12 +425,31 @@ export default function AdminPage() {
           </div>
           <div className="space-y-1.5">
             <Label>E-Mail</Label>
-            <Input type="email" placeholder="max@golfclub.de" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} />
+            <Input
+              type="email"
+              placeholder="max@golfclub.de"
+              value={newEmail}
+              onChange={(e) => { setNewEmail(e.target.value); setEmailStatus('idle') }}
+              onBlur={handleEmailBlur}
+            />
+            {emailStatus === 'checking' && (
+              <p className="text-xs text-muted-foreground">Prüfe Account…</p>
+            )}
+            {emailStatus === 'existing' && (
+              <p className="text-xs text-emerald-600 font-medium">✓ Spieler hat bereits einen Account – kein Passwort nötig.</p>
+            )}
+            {emailStatus === 'new' && (
+              <p className="text-xs text-muted-foreground">Neuer Spieler – bitte temporäres Passwort vergeben.</p>
+            )}
           </div>
-          <div className="space-y-1.5">
-            <Label>Temporäres Passwort <span className="text-muted-foreground">(min. 8 Zeichen)</span></Label>
-            <Input type="password" placeholder="••••••••" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
-          </div>
+
+          {emailStatus === 'new' && (
+            <div className="space-y-1.5">
+              <Label>Temporäres Passwort <span className="text-muted-foreground">(min. 8 Zeichen)</span></Label>
+              <Input type="password" placeholder="••••••••" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
+            </div>
+          )}
+
           <div className="space-y-1.5">
             <Label>Rolle</Label>
             <select
@@ -399,13 +457,15 @@ export default function AdminPage() {
               onChange={(e) => setNewRole(e.target.value as 'player' | 'captain')}
               className="h-9 w-full rounded-lg border bg-background px-3 text-sm"
             >
-              <option value="player">Player</option>
+              <option value="player">Spieler</option>
               <option value="captain">Captain</option>
             </select>
           </div>
-          <p className="text-xs text-muted-foreground">
-            Der Spieler erhält einen Keycloak-Account. Das temporäre Passwort wird nach dem Speichern angezeigt und muss direkt weitergegeben werden.
-          </p>
+          {emailStatus === 'idle' && (
+            <p className="text-xs text-muted-foreground">
+              E-Mail eingeben und Feld verlassen – das System erkennt automatisch ob der Spieler bereits einen Account hat.
+            </p>
+          )}
         </div>
       </SideSheet>
 

@@ -151,12 +151,18 @@ def my_teams(creds: HTTPAuthorizationCredentials = Depends(_bearer)):
     with get_db() as conn:
         with conn.cursor() as cur:
             if "admin" in jwt_roles:
-                # Admins sehen alle Teams
+                # Admins sehen alle Teams – tatsächliche Membership-Rolle wo vorhanden,
+                # sonst 'admin' als Fallback (voller Zugriff ohne expliziten Eintrag)
                 cur.execute(
-                    "SELECT id, name FROM public.teams ORDER BY id ASC"
+                    """SELECT t.id, t.name, COALESCE(tm.role, 'admin') AS role
+                       FROM public.teams t
+                       LEFT JOIN public.team_memberships tm
+                         ON tm.team_id = t.id AND tm.keycloak_user_id = %s
+                       ORDER BY t.id ASC""",
+                    (user_sub,),
                 )
                 rows = cur.fetchall()
-                return [{"team_id": r[0], "team_name": r[1], "role": "admin"} for r in rows]
+                return [{"team_id": r[0], "team_name": r[1], "role": r[2]} for r in rows]
             else:
                 cur.execute(
                     """SELECT tm.team_id, t.name, tm.role
