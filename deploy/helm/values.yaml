@@ -1,0 +1,119 @@
+# ── GC-Mannschaftsverwaltung – Helm Values ───────────────────────────────────
+# Dokumentation aller verfügbaren Werte.
+# Für Production: Werte in values.prod.yaml überschreiben (nie Secrets hier eintragen).
+
+# ── Backend ──────────────────────────────────────────────────────────────────
+backend:
+  image:
+    repository: ghcr.io/DEIN_GITHUB_USER/gc-backend  # Docker-Image aus deiner Registry
+    tag: "latest"
+    pullPolicy: IfNotPresent
+
+  replicaCount: 2
+
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+
+  workers: 2  # Uvicorn-Worker (empfohlen: 2× CPU-Cores)
+
+  config:
+    environment: "production"
+    # CORS: kommagetrennte Liste erlaubter Origins
+    allowedOrigins: "https://DEINE_DOMAIN.de"
+    keycloakUrl: "https://auth.DEINE_DOMAIN.de"
+    keycloakRealm: "golf-team-manager"
+    # Tenant-Auflösung: false = nur via Host-Header (sicherer)
+    allowTeamIdFallback: "false"
+
+  # Name des Kubernetes-Secrets das DATABASE_URL + weitere Secrets enthält
+  # Wird von secrets.yaml erzeugt oder extern (z.B. External Secrets) bereitgestellt
+  existingSecret: ""  # leer = secrets.yaml wird verwendet
+
+# ── Frontend ─────────────────────────────────────────────────────────────────
+frontend:
+  image:
+    repository: ghcr.io/DEIN_GITHUB_USER/gc-frontend
+    tag: "latest"
+    pullPolicy: IfNotPresent
+
+  replicaCount: 2
+
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "64Mi"
+    limits:
+      cpu: "200m"
+      memory: "128Mi"
+
+# ── Ingress ───────────────────────────────────────────────────────────────────
+ingress:
+  enabled: true
+  className: "nginx"  # nginx-ingress-controller; alternativ: "traefik"
+  host: "DEINE_DOMAIN.de"
+  authHost: "auth.DEINE_DOMAIN.de"  # Keycloak-Subdomain
+
+  # TLS via cert-manager (Let's Encrypt)
+  tls: true
+  certIssuer: "letsencrypt-prod"  # ClusterIssuer Name in deinem Cluster
+
+# ── Secrets ───────────────────────────────────────────────────────────────────
+# Werte hier nur für lokale Tests – in Production über externe Secret-Verwaltung!
+secrets:
+  databaseUrl: ""          # postgresql://user:pass@host:5432/db – wird auto-gesetzt
+  keycloakAdminPassword: "BITTE_AENDERN"
+
+# ── PostgreSQL (Bitnami Sub-Chart) ────────────────────────────────────────────
+postgresql:
+  enabled: true
+  auth:
+    username: "golf"
+    password: "BITTE_AENDERN"   # in Production via sealed secret / external secret
+    database: "golf_team"
+  primary:
+    persistence:
+      enabled: true
+      size: 5Gi
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+
+# ── Keycloak (Bitnami Sub-Chart) ──────────────────────────────────────────────
+keycloak:
+  enabled: true
+  auth:
+    adminUser: "admin"
+    adminPassword: "BITTE_AENDERN"   # in Production via sealed secret / external secret
+  # Production-Modus hinter nginx-Ingress (TLS-Terminierung am Ingress)
+  extraEnvVars:
+    - name: KC_PROXY
+      value: "edge"
+    - name: KC_HOSTNAME_STRICT
+      value: "false"
+    - name: KC_HTTP_ENABLED
+      value: "true"
+  # Eigene PostgreSQL-Instanz des Sub-Charts deaktivieren,
+  # stattdessen unsere PostgreSQL-Instanz verwenden
+  postgresql:
+    enabled: false
+  externalDatabase:
+    host: '{{ .Release.Name }}-postgresql'
+    port: 5432
+    user: "golf"
+    database: "keycloak"
+    existingSecret: '{{ .Release.Name }}-postgresql'
+    existingSecretPasswordKey: "password"
+  production: true
+  proxy: edge
+  persistence:
+    enabled: true
+    size: 1Gi

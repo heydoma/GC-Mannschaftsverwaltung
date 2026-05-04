@@ -14,4 +14,8 @@ COPY . .
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# WORKERS: Anzahl Uvicorn-Worker-Prozesse (Empfehlung: 2× CPU-Cores).
+# Wird im Helm-Chart via ConfigMap gesetzt; Default hier = 2.
+ENV WORKERS=2
+
+CMD uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers ${WORKERS}

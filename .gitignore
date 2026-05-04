@@ -40,3 +40,6 @@ Thumbs.db
 
 # --- Docker / Data ---
 postgres-data/
+
+# --- Helm: Production Values enthalten echte Passwörter – nie committen! ---
+deploy/helm/values.prod.yaml

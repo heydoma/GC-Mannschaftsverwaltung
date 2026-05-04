@@ -1,3 +1,4 @@
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, status
@@ -9,18 +10,37 @@ from app.tenancy import ALLOW_TEAM_ID_FALLBACK, bootstrap_tenant_schemas, normal
 from app.auth.keycloak import decode_access_token
 from app.routes import auth, players, rounds, leaderboard, courses, matchdays
 
+ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
+IS_PRODUCTION = ENVIRONMENT == "production"
+
+# CORS: In Production aus Env-Var lesen, lokal Dev-Server erlauben
+_allowed_origins_env = os.getenv("ALLOWED_ORIGINS", "")
+ALLOWED_ORIGINS = (
+    [o.strip() for o in _allowed_origins_env.split(",") if o.strip()]
+    if _allowed_origins_env
+    else ["http://localhost:5173", "http://localhost:4173"]
+)
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     bootstrap_tenant_schemas()
     yield
 
 
-app = FastAPI(title="Golf Team Performance API", version="0.1.0", redirect_slashes=False, lifespan=lifespan)
+app = FastAPI(
+    title="Golf Team Performance API",
+    version="0.1.0",
+    redirect_slashes=False,
+    lifespan=lifespan,
+    # Swagger/ReDoc in Production deaktivieren
+    docs_url=None if IS_PRODUCTION else "/docs",
+    redoc_url=None if IS_PRODUCTION else "/redoc",
+    openapi_url=None if IS_PRODUCTION else "/openapi.json",
+)
 
-# CORS – erlaubt lokalen Vite-Dev-Server und spätere Deployments
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:4173"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
 )

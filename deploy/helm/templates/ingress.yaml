@@ -1,0 +1,60 @@
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "gcm.fullname" . }}
+  labels:
+    {{- include "gcm.labels" . | nindent 4 }}
+  annotations:
+    # cert-manager: automatisches TLS-Zertifikat via Let's Encrypt
+    cert-manager.io/cluster-issuer: {{ .Values.ingress.certIssuer | quote }}
+    # nginx-Ingress: größere Header für Keycloak-Tokens erlauben
+    nginx.ingress.kubernetes.io/proxy-buffer-size: "128k"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    # Security Headers
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      more_set_headers "X-Frame-Options: DENY";
+      more_set_headers "X-Content-Type-Options: nosniff";
+      more_set_headers "Referrer-Policy: strict-origin-when-cross-origin";
+spec:
+  ingressClassName: {{ .Values.ingress.className | quote }}
+  {{- if .Values.ingress.tls }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.host | quote }}
+      secretName: {{ include "gcm.fullname" . }}-tls
+    - hosts:
+        - {{ .Values.ingress.authHost | quote }}
+      secretName: {{ include "gcm.fullname" . }}-auth-tls
+  {{- end }}
+  rules:
+    # Haupt-App: API → Backend, alles andere → Frontend
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "gcm.fullname" . }}-backend
+                port:
+                  number: 8000
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "gcm.fullname" . }}-frontend
+                port:
+                  number: 80
+    # Keycloak auf eigener Subdomain
+    - host: {{ .Values.ingress.authHost | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Release.Name }}-keycloak
+                port:
+                  number: 80
+{{- end }}
